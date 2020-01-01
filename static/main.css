@@ -1,0 +1,106 @@
+:root {
+    --content-width: 800px;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #fff;
+}
+
+header {
+    padding: 10px;
+    width: 100%;
+    background-color: #ddd;
+}
+
+.site-logo img {
+    height: 50px;
+}
+
+nav {
+    max-width: 1000px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: row;
+}
+
+nav ul {
+    display: flex;
+}
+
+nav li {
+    flex: 10;
+    list-style: none;
+}
+
+nav li a {
+    padding: 10px;
+}
+
+nav li a:hover {
+    border-bottom: solid 3px #aaa;
+}
+
+nav.main {
+}
+
+nav.page-context {
+}
+
+main {
+    margin: 0 auto;
+    margin-top: 20px;
+    max-width: 800px;
+}
+
+.selection {
+    user-select: none;
+    font-family: Fira Sans;
+    font-size: 14px;
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.selection li {
+    list-style: none;
+}
+
+.selection input {
+    display: none;
+}
+
+.selection label {
+    display: block;
+    margin: 6px;
+    padding: 8px;
+    border-radius: 6px;
+    box-shadow: 0 0 2px 1px rgba(1,1,1,0.4);
+    background-color: #eee;
+}
+
+.selection label:hover {
+/*     background-color: #0cf; */
+    box-shadow: 0 0 3px 2px #0af;
+}
+
+.selection label:active {
+    background-color: #faf;
+}
+
+.selection input:checked + label {
+    background-color: #0af;
+}
+
+.selection input:checked:hover + label {
+    background-color: #0cf;
+}
+
+.selection input:disabled + label {
+    background-color: #aaa;
+    color: #555
+}
+
+.hidden {
+    display: none;
+}

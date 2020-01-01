@@ -1,0 +1,27 @@
+#![feature(proc_macro_hygiene, decl_macro)]
+
+#[macro_use] extern crate rocket;
+#[macro_use] extern crate rocket_contrib;
+
+mod system;
+mod render;
+mod views;
+mod handlers;
+mod db;
+mod guards;
+
+use rocket_contrib::helmet::SpaceHelmet;
+use rocket_contrib::serve::StaticFiles;
+
+fn main() {
+    let campaign = system::SystemLoader::init("/home/me/code/terra-system").unwrap().load_campaign("skyland-classic").unwrap();
+
+    rocket::ignite()
+        .manage(campaign)
+        .attach(SpaceHelmet::default())
+        .attach(db::AuthDB::fairing())
+        .attach(db::CharsDB::fairing())
+        .mount("/static", StaticFiles::from(concat!(env!("CARGO_MANIFEST_DIR"), "/static")))
+        .mount("/", handlers::routes())
+        .launch();
+}
