@@ -3,6 +3,7 @@
 #[macro_use] extern crate rocket;
 #[macro_use] extern crate rocket_contrib;
 
+mod util;
 mod system;
 mod render;
 mod views;
@@ -14,7 +15,8 @@ use rocket_contrib::helmet::SpaceHelmet;
 use rocket_contrib::serve::StaticFiles;
 
 fn main() {
-    let campaign = system::SystemLoader::init("/home/me/code/terra-system").unwrap().load_campaign("skyland-classic").unwrap();
+    let shared_system = system::load_shared_system("/home/me/code/terra-system").unwrap();
+    let campaign = system::load_campaign("/home/me/code/terra-system", "last-bastion", Some(&shared_system)).unwrap();
 
     rocket::ignite()
         .manage(campaign)

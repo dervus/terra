@@ -4,29 +4,23 @@ use crate::handlers;
 
 const SITE_NAME: &'static str = "History of Heroes 2";
 
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum SiteDir {
-    Root,
-    Campaigns,
-    Characters,
-}
-
 pub struct Page<'a> {
-    dir: SiteDir,
     title: Option<&'a str>,
     account: Option<&'a AccountInfo>,
-    scripts: Vec<String>,
+    stylesheets: Vec<&'a str>,
+    scripts: Vec<&'a str>,
 }
 
 impl<'a> Page<'a> {
-    pub fn new(dir: SiteDir) -> Self {
-        Self { dir, title: None, account: None, scripts: Vec::new() }
+    pub fn new() -> Self {
+        Self {
+            title: None,
+            account: None,
+            stylesheets: Vec::new(),
+            scripts: Vec::new()
+        }
     }
     
-    pub fn root() -> Self { Self::new(SiteDir::Root) }
-    pub fn campaigns() -> Self { Self::new(SiteDir::Campaigns) }
-    pub fn characters() -> Self { Self::new(SiteDir::Characters) }
-
     pub fn title(mut self, title: &'a str) -> Self {
         self.title = Some(title);
         self
@@ -37,8 +31,13 @@ impl<'a> Page<'a> {
         self
     }
 
-    pub fn script<T: Into<String>>(mut self, path: T) -> Self {
-        self.scripts.push(path.into());
+    pub fn stylesheet(mut self, path: &'a str) -> Self {
+        self.stylesheets.push(path);
+        self
+    }
+
+    pub fn script(mut self, path: &'a str) -> Self {
+        self.scripts.push(path);
         self
     }
 
@@ -54,63 +53,41 @@ impl<'a> Page<'a> {
                     }
                     link rel="icon" href="/static/gonglhead.png";
                     link rel="stylesheet" href="/static/main.css";
-                    @for path in self.scripts {
-                        script src=(path) {}
-                    }
+                    @for path in self.stylesheets { link rel="stylesheet" href=(path); }
+                    @for path in self.scripts { script src=(path) {} }
                 }
                 body {
                     header {
-                        nav.site-navigation {
+                        nav.site-nav {
                             .site-logo {
                                 a href="/" {
                                     img src="/static/hoh2logo.png";
                                     img src="/static/hoh2logotext.png" alt=(SITE_NAME);
                                 }
                             }
-                            ul {
-                                li { a.active[self.dir == SiteDir::Root] href=(uri!(handlers::index)) { "Главная" } }
-                                li { a.active[self.dir == SiteDir::Campaigns] href=(uri!(handlers::campaigns)) { "Игры" } }
-                                li { a.active[self.dir == SiteDir::Characters] href=(uri!(handlers::characters)) { "Персонажи" } }
-                                li.separator {}
+                            ul.site-dirs {
+                                li.dir { a href=(uri!(handlers::index)) { "Главная" } }
+                                li.dir { a href=(uri!(handlers::characters)) { "Персонажи" } }
                                 @if let Some(some_account) = self.account {
-                                    li.current-account { a href=(some_account.href()) { (some_account.nick) } }
-                                    li.logout {
+                                    li.auth {
+                                        a.current-user href=(some_account.href()) { (some_account.nick) }
+                                    }
+                                    li.auth {
                                         form method="post" action=(uri!(handlers::logout)) {
-                                            button type="submit" { "Выход" }
+                                            button.logout type="submit" { "Выход" }
                                         }
                                     }
                                 } @else {
-                                    li { a href=(uri!(handlers::login_page)) { "Вход" } }
-                                    li { a href=(uri!(handlers::signup)) { "Регистрация" } }
+                                    li.auth { a.login href=(uri!(handlers::login_page)) { "Вход" } }
+                                    li.auth { a.signup href=(uri!(handlers::signup)) { "Регистрация" } }
                                 }
                             }
                         }
                     }
                     main { (content) }
-                    footer {}
+                    footer { (crate::util::random_footnote()) }
                 }
             }
         }
     }
-}
-
-pub fn field(ftype: &str, name: &str, label: &str) -> Markup {
-    html! {
-        div.label { label for=(name) { (label) } }
-        div.input { input type=(ftype) name=(name); }
-    }
-}
-
-pub fn capitalize<T: AsRef<str>>(input: T) -> String {
-    let mut output = String::with_capacity(input.as_ref().len());
-    for (index, character) in input.as_ref().to_owned().chars().enumerate() {
-        if index == 0 {
-            for upcase in character.to_uppercase() {
-                output.push(upcase);
-            }
-        } else {
-            output.push(character);
-        }
-    }
-    output
 }

@@ -1,4 +1,9 @@
 document.addEventListener("DOMContentLoaded", (event) => {
+    gender = Kefir.fromEvents($('input[name="gender"]'), "input", e => e.target).filter(e => e.checked).map(e => e.value).toProperty(() => "male")
+    race = Kefir.fromEvents($('input[name="race"]'), "input", e => e.target).filter(e => e.checked).map(e => e.value).toProperty(() => "human")
+    klass = Kefir.fromEvents($('input[name="class"]'), "input", e => e.target).filter(e => e.checked).map(e => e.value).toProperty(() => "warrior")
+    form = Kefir.zip([gender, race, klass], (g, r, c) => { return {gender: g, race: r, klass: c} }).toProperty()
+    
     let traits = document.querySelectorAll('input:checked[name="trait"]').length
 
     for (let node of document.querySelectorAll('input[name="trait"] + label, input[name="location"] + label').values()) {

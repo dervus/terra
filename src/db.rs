@@ -1,5 +1,7 @@
 use rocket_contrib::databases::mysql;
 use anyhow::Result;
+use ring::digest::{SHA1, digest};
+use crate::util::hexstring;
 
 #[database("auth")]
 pub struct AuthDB(mysql::Conn);
@@ -25,8 +27,33 @@ SELECT a.id, a.username, aa.gmlevel \
 FROM account a LEFT JOIN account_access aa ON (a.id = aa.id AND aa.RealmID = -1) \
 WHERE a.id = ?";
 
-    let result: Option<(u32, String, u8)> = conn.first_exec(SQL, (id,))?;
-    Ok(result.map(|(id, nick, access_level)| AccountInfo { id, nick, access_level }))
+    let result: Option<(u32, String, Option<u8>)> = conn.first_exec(SQL, (id,))?;
+
+    Ok(result.map(|(id, nick, access_level)| {
+        AccountInfo { id, nick, access_level: access_level.unwrap_or(0) }
+    }))
+}
+
+pub fn login_query(conn: &mut mysql::Conn, login: &str, password: &str) -> Result<Option<(u32, String)>> {
+    const SQL: &'static str = "\
+SELECT id, username, sha_pass_hash \
+FROM account \
+WHERE UPPER(username) = ? OR UPPER(email) = ? \
+";
+
+    let query = login.trim().to_uppercase();
+    let result: Option<(u32, String, String)> = conn.first_exec(SQL, (&query, &query))?;
+
+    Ok(result.and_then(|(id, nick, actual_passhash)| {
+        let input_raw = format!("{}:{}", &nick, password.trim()).to_uppercase();
+        let input_passhash = hexstring(digest(&SHA1, input_raw.as_bytes()).as_ref());
+
+        if input_passhash == actual_passhash {
+            Some((id, nick))
+        } else {
+            None
+        }
+    }))
 }
 
 pub struct OxyCharCreateInfo {
