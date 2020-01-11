@@ -24,6 +24,8 @@ fn main() {
         .attach(db::AuthDB::fairing())
         .attach(db::CharsDB::fairing())
         .mount("/static", StaticFiles::from(concat!(env!("CARGO_MANIFEST_DIR"), "/static")))
+        .mount("/system/assets", StaticFiles::from("/home/me/code/terra-system/public"))
+        .mount("/campaigns/last-bastion/assets", StaticFiles::from("/home/me/code/terra-system/campaigns/last-bastion/assets"))
         .mount("/", handlers::routes())
         .launch();
 }

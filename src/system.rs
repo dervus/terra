@@ -14,6 +14,15 @@ pub type EntityIds = HashSet<EntityId>;
 pub type EntityMap<T> = HashMap<EntityId, T>;
 
 // =============================================================================
+// TRAITS
+//
+pub trait Entity {
+    fn name(&self) -> &str;
+    fn description(&self) -> Option<&str>;
+    fn preview(&self) -> Option<&str>;
+}
+
+// =============================================================================
 // BASIC TYPES
 //
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,9 +171,16 @@ impl ExtraMods {
 #[serde(deny_unknown_fields)]
 pub struct Race {
     pub name: DeclinedName,
+    #[serde(default)] pub description: Option<String>,
     pub game_id: u32,
     #[serde(default)] pub gender: GenderFilter,
     #[serde(default)] pub models: EntityMap<Model>,
+}
+
+impl Entity for Race {
+    fn name(&self) -> &str { self.name.male() }
+    fn description(&self) -> Option<&str> { self.description.as_deref() }
+    fn preview(&self) -> Option<&str> { None }
 }
 
 fn default_model_scale() -> f32 { 1.0 }
@@ -184,9 +200,16 @@ pub struct Model {
 #[serde(deny_unknown_fields)]
 pub struct Class {
     pub name: DeclinedName,
+    #[serde(default)] pub description: Option<String>,
     pub game_id: u32,
     #[serde(default)] pub gender: GenderFilter,
     #[serde(default)] pub races: EntiryFilter,
+}
+
+impl Entity for Class {
+    fn name(&self) -> &str { self.name.male() }
+    fn description(&self) -> Option<&str> { self.description.as_deref() }
+    fn preview(&self) -> Option<&str> { None }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -194,6 +217,7 @@ pub struct Class {
 pub struct ArmorSet {
     pub name: String,
     #[serde(default)] pub description: Option<String>,
+    #[serde(default)] pub preview: Option<String>,
     
     #[serde(default)] pub gender: GenderFilter,
     #[serde(default)] pub races: EntiryFilter,
@@ -215,11 +239,18 @@ pub struct ArmorSet {
     #[serde(default)] pub tabard: Option<u32>,
 }
 
+impl Entity for ArmorSet {
+    fn name(&self) -> &str { &self.name }
+    fn description(&self) -> Option<&str> { self.description.as_deref() }
+    fn preview(&self) -> Option<&str> { self.preview.as_deref() }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WeaponSet {
     pub name: String,
     #[serde(default)] pub description: Option<String>,
+    #[serde(default)] pub preview: Option<String>,
 
     #[serde(default)] pub gender: GenderFilter,
     #[serde(default)] pub races: EntiryFilter,
@@ -228,6 +259,12 @@ pub struct WeaponSet {
     #[serde(default)] pub mainhand: Option<u32>,
     #[serde(default)] pub offhand: Option<u32>,
     #[serde(default)] pub ranged: Option<u32>,
+}
+
+impl Entity for WeaponSet {
+    fn name(&self) -> &str { &self.name }
+    fn description(&self) -> Option<&str> { self.description.as_deref() }
+    fn preview(&self) -> Option<&str> { self.preview.as_deref() }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -244,6 +281,12 @@ pub struct Trait {
     
     #[serde(default)] pub cost: i32,
     #[serde(default, flatten)] pub mods: ExtraMods,
+}
+
+impl Entity for Trait {
+    fn name(&self) -> &str { &self.name }
+    fn description(&self) -> Option<&str> { self.description.as_deref() }
+    fn preview(&self) -> Option<&str> { None }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,6 +307,12 @@ pub struct Location {
     #[serde(default, flatten)] pub mods: ExtraMods,
 }
 
+impl Entity for Location {
+    fn name(&self) -> &str { &self.name }
+    fn description(&self) -> Option<&str> { self.description.as_deref() }
+    fn preview(&self) -> Option<&str> { None }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RoleKind {
@@ -280,6 +329,7 @@ impl Default for RoleKind {
 #[serde(deny_unknown_fields)]
 pub struct Role {
     pub name: String,
+    #[serde(default)] pub description: Option<String>,
     #[serde(default)] pub kind: RoleKind,
     #[serde(default)] pub limit: Option<u32>,
     #[serde(default)] pub gender: GenderFilter,
@@ -306,6 +356,7 @@ pub struct Block {
 //
 #[derive(Debug, Clone)]
 pub struct Campaign {
+    pub id: String,
     pub manifest: Manifest,
     pub index_page: String,
     pub system: System,
@@ -399,6 +450,7 @@ pub fn load_campaign<P: Into<PathBuf>>(path: P, id: &str, shared_system: Option<
         .collect();
 
     Ok(Campaign {
+        id: id.to_owned(),
         manifest,
         index_page,
         system,

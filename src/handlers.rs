@@ -83,7 +83,8 @@ pub fn new_character(user: MaybeUser, campaign: rocket::State<crate::system::Cam
     Page::new()
         .title("Новый персонаж")
         .account(user.0.as_ref())
-        .script("/static/character_form.js")
+        .stylesheet("/static/css/character_form.css")
+        .script("/static/js/character_form.js")
         .render(views::character_form(&*campaign, role.map(|r| r.url_decode().unwrap()).as_deref()))
 }
 

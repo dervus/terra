@@ -51,41 +51,40 @@ impl<'a> Page<'a> {
                     } @else {
                         title { (SITE_NAME) }
                     }
-                    link rel="icon" href="/static/gonglhead.png";
-                    link rel="stylesheet" href="/static/main.css";
+                    link rel="icon" href="/static/img/hoh2_logo.png";
+                    link href="https://fonts.googleapis.com/css?family=Fira+Sans|Lora|Niconne|Open+Sans&display=swap&subset=cyrillic" rel="stylesheet";
+                    link rel="stylesheet" href="/static/css/main.css";
                     @for path in self.stylesheets { link rel="stylesheet" href=(path); }
                     @for path in self.scripts { script src=(path) {} }
                 }
                 body {
                     header {
                         nav.site-nav {
-                            .site-logo {
-                                a href="/" {
-                                    img src="/static/hoh2logo.png";
-                                    img src="/static/hoh2logotext.png" alt=(SITE_NAME);
-                                }
+                            .site-title {
+                                img src="/static/img/hoh2_logo.png";
+                                img src="/static/img/hoh2_title.png" alt=(SITE_NAME);
                             }
                             ul.site-dirs {
-                                li.dir { a href=(uri!(handlers::index)) { "Главная" } }
-                                li.dir { a href=(uri!(handlers::characters)) { "Персонажи" } }
+                                li.dir { a.site-dir href=(uri!(handlers::index)) { "Главная" } }
+                                li.dir { a.site-dir href=(uri!(handlers::characters)) { "Персонажи" } }
+                                li.dir { a.site-dir href="/forum" { "Форум" } }
                                 @if let Some(some_account) = self.account {
                                     li.auth {
-                                        a.current-user href=(some_account.href()) { (some_account.nick) }
+                                        a.site-dir.current-user href=(some_account.href()) { (some_account.nick) }
                                     }
                                     li.auth {
                                         form method="post" action=(uri!(handlers::logout)) {
-                                            button.logout type="submit" { "Выход" }
+                                            button.site-dir.logout type="submit" { "Выход" }
                                         }
                                     }
                                 } @else {
-                                    li.auth { a.login href=(uri!(handlers::login_page)) { "Вход" } }
-                                    li.auth { a.signup href=(uri!(handlers::signup)) { "Регистрация" } }
+                                    li.auth { a.site-dir.login href=(uri!(handlers::login_page)) { "Вход" } }
+                                    li.auth { a.site-dir.signup href=(uri!(handlers::signup)) { "Регистрация" } }
                                 }
                             }
                         }
                     }
                     main { (content) }
-                    footer { (crate::util::random_footnote()) }
                 }
             }
         }
