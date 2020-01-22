@@ -1,7 +1,6 @@
 use maud::{html, Markup};
 use crate::system::Campaign;
 use crate::util::capitalize;
-use crate::handlers;
 
 pub fn campaign(campaign: &Campaign) -> Markup {
     html! {
@@ -33,7 +32,7 @@ pub fn characters() -> Markup {
     html! {
         ul {
             li {
-                a href=(uri!(handlers::new_character: _)) { "Новый персонаж" }
+                a href="/characters/new" { "Новый персонаж" }
             }
         }
     }
@@ -44,8 +43,9 @@ pub fn character_form(campaign: &Campaign, selected_role: Option<&str>) -> Marku
     traits.sort_by_key(|(_, info)| (-info.cost, &info.name));
 
     let preview_url = |template: &str| -> String {
-        let campaign_param = format!("/campaigns/{}/assets", &campaign.id);
-        template.replace("{system}", "/system/assets").replace("{campaign}", &campaign_param)
+        template
+            .replace("{system}", "/system/assets")
+            .replace("{campaign}", &format!("/campaigns/{}/assets", &campaign.id))
     };
 
     fn descriptions<T, F>(kind: &str, entities: &crate::system::EntityMap<T>, preview_fn: F) -> Markup
@@ -260,7 +260,7 @@ pub fn signup() -> Markup {
 
 pub fn login() -> Markup {
     html! {
-        form.auth method="post" action=(uri!(handlers::login_action)) {
+        form.auth method="post" action="/login" {
             fieldset {
                 (field("text", "name", "Ник или email"));
                 (field("password", "password", "Пароль"));

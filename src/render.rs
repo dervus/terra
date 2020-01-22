@@ -1,6 +1,5 @@
 use maud::{html, Markup, DOCTYPE};
 use crate::db::AccountInfo;
-use crate::handlers;
 
 const SITE_NAME: &'static str = "History of Heroes 2";
 
@@ -65,21 +64,21 @@ impl<'a> Page<'a> {
                                 img src="/static/img/hoh2_title.png" alt=(SITE_NAME);
                             }
                             ul.site-dirs {
-                                li.dir { a.site-dir href=(uri!(handlers::index)) { "Главная" } }
-                                li.dir { a.site-dir href=(uri!(handlers::characters)) { "Персонажи" } }
+                                li.dir { a.site-dir href="/" { "Главная" } }
+                                li.dir { a.site-dir href="/characters" { "Персонажи" } }
                                 li.dir { a.site-dir href="/forum" { "Форум" } }
                                 @if let Some(some_account) = self.account {
                                     li.auth {
                                         a.site-dir.current-user href=(some_account.href()) { (some_account.nick) }
                                     }
                                     li.auth {
-                                        form method="post" action=(uri!(handlers::logout)) {
+                                        form method="post" action="/logout" {
                                             button.site-dir.logout type="submit" { "Выход" }
                                         }
                                     }
                                 } @else {
-                                    li.auth { a.site-dir.login href=(uri!(handlers::login_page)) { "Вход" } }
-                                    li.auth { a.site-dir.signup href=(uri!(handlers::signup)) { "Регистрация" } }
+                                    li.auth { a.site-dir.login href="/login" { "Вход" } }
+                                    li.auth { a.site-dir.signup href="/signup" { "Регистрация" } }
                                 }
                             }
                         }

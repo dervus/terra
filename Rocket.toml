@@ -1,6 +1,0 @@
-[global]
-secret_key = "eTy8oq/6bT0GA07R0fzWh3QXdeX9xgJL70gUaQ4arak="
-
-[global.databases]
-auth = { url = "mysql://trinity:trinity@localhost/wotlk_auth" }
-characters = { url = "mysql://trinity:trinity@localhost/wotlk_characters" }
