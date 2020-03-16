@@ -1,8 +1,9 @@
 #![feature(proc_macro_hygiene, async_closure)]
 
+mod errors;
 mod util;
 mod system;
-mod render;
+mod page;
 mod views;
 mod handlers;
 mod db;
@@ -10,19 +11,11 @@ mod db;
 use std::path::PathBuf;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use warp::Filter;
-use render::Page;
-use serde::{Serialize, Deserialize};
+use log::info;
+use url::Url;
+use serde::Deserialize;
 
-pub type RedisPool = mobc::Pool<mobc_redis::RedisConnectionManager>;
-pub type RedisConn = mobc::Connection<mobc_redis::RedisConnectionManager>;
-pub type MysqlPool = mysql_async::Pool;
-pub type MysqlConn = mysql_async::Conn;
-
-#[derive(Debug)] pub struct MysqlFailure;
-impl warp::reject::Reject for MysqlFailure {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct Config {
     pub listen: SocketAddr,
     pub files_path: PathBuf,
@@ -30,58 +23,43 @@ pub struct Config {
     pub redis: String,
     pub auth_db: String,
     pub chars_db: String,
+    pub campaign: String,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    pretty_env_logger::init();
+    println!("Initializing logger");
+    env_logger::init();
 
-    let config: Config = serde_yaml::from_str(&std::fs::read_to_string("config.yml")?)?;
-    let redis_url = url::Url::parse(&config.redis)?;
-    
+    let mut args = std::env::args();
+    args.next();
+    let config_path = args.next().unwrap_or("config.yml".to_owned());
+
+    info!("Loading config file {}", &config_path);
+    let config: Config = serde_yaml::from_str(&std::fs::read_to_string(&config_path)?)?;
+    let redis_url = Url::parse(&config.redis)?;
+
+    info!("Loading shared system {:?}", &config.data_path);
     let shared_system = system::load_shared_system(&config.data_path)?;
-    let mut campaigns = Vec::new();
-    for id in &["last-bastion"] {
-        let loaded = system::load_campaign(&config.data_path, id, Some(&shared_system))?;
-        campaigns.push(loaded);
-    }
 
-    let redis = RedisPool::new(mobc_redis::RedisConnectionManager::new(mobc_redis::redis::Client::open(redis_url)?));
-    let auth_db = MysqlPool::from_url(&config.auth_db)?;
-    let chars_db = MysqlPool::from_url(&config.chars_db)?;
+    info!("Loading campaign {:?}", &config.campaign);
+    let campaign = Arc::new(system::load_campaign(&config.data_path, &config.campaign, Some(&shared_system))?);
 
-    let with_redis = warp::any().map(move || redis.clone());
-    let with_auth_db = warp::any().map(move || auth_db.clone());
-    let with_chars_db = warp::any().map(move || chars_db.clone());
+    info!("Initilizaing database connections");
+    let redis_pool = db::RedisPool::new(mobc_redis::RedisConnectionManager::new(mobc_redis::redis::Client::open(redis_url)?));
+    let auth_pool = db::MysqlPool::from_url(&config.auth_db)?;
+    let chars_pool = db::MysqlPool::from_url(&config.chars_db)?;
 
-    let session_key = warp::cookie::optional("session_key");
-    // let user = session_key.map(|key: Option<String>| key.and_then(|k| k.parse::<u32>().ok())).and_then(move |maybe_id: Option<u32>| {
-    //     let pool = auth_db.clone();
-    //     async move {
-    //         let conn = pool.get_conn().await.map_err(|_| warp::reject::custom(MysqlFailure))?;
-    //         if let Some(id) = maybe_id {
-    //             db::fetch_account_info(conn, id).await.map_err(|_| warp::reject::custom(MysqlFailure))
-    //         } else {
-    //             Ok::<Option<db::AccountInfo>, warp::Rejection>(None)
-    //         }
-    //     }
-    // });
-    let user_id = session_key.map(|key: Option<String>| key.and_then(|k| k.parse::<u32>().ok()));
-    let user = user_id.and(with_auth_db).and_then(async move |maybe_id: Option<u32>, pool: MysqlPool| {
-        let conn = pool.get_conn().await.map_err(|_| warp::reject::custom(MysqlFailure))?;
-        if let Some(id) = maybe_id {
-            db::fetch_account_info(conn, id).await.map_err(|_| warp::reject::custom(MysqlFailure))
-        } else {
-            Ok::<Option<db::AccountInfo>, warp::Rejection>(None)
-        }
+    info!("Setting up HTTP server");
+    let app = handlers::make_app(handlers::AppConfig {
+        files_path: config.files_path,
+        data_path: config.data_path,
+        redis_pool,
+        auth_pool,
+        chars_pool,
+        campaign,
     });
 
-    let index = warp::path::end().map(move || warp::reply::html(Page::new().render(views::campaign(&campaigns[0])).into_string()));
-    let test = warp::path!("test").and(user).map(|u| format!("Cookie: {:?}", u));
-    let set_test = warp::path!("set-test" / String).map(|s| warp::reply::with_header(warp::reply(), "set-cookie", cookie::Cookie::build("session_key", s).path("/").same_site(cookie::SameSite::Strict).finish().to_string()));
-    let static_files = warp::path("static").and(warp::fs::dir(config.files_path.clone()));
-    let app = warp::get().and(static_files.or(test).or(set_test).or(index)).with(warp::log::log("terra"));
     warp::serve(app).run(config.listen).await;
-    
     Ok(())
 }

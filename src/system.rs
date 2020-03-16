@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::fs::{File, read_to_string};
 use std::io::BufReader;
 use std::fmt;
-
+use log::info;
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use comrak::{ComrakOptions, markdown_to_html};
@@ -54,7 +54,7 @@ pub enum Gender {
     Female,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum GenderFilter {
     Any,
@@ -63,7 +63,7 @@ pub enum GenderFilter {
 }
 
 impl GenderFilter {
-    pub fn apply(&self, gender: Gender) -> bool {
+    pub fn matches(&self, gender: Gender) -> bool {
         match self {
             GenderFilter::Any => true,
             GenderFilter::MaleOnly => gender == Gender::Male,
@@ -95,7 +95,7 @@ pub enum EntiryFilter {
 }
 
 impl EntiryFilter {
-    pub fn apply(&self, id: &str) -> bool {
+    pub fn matches(&self, id: &str) -> bool {
         match self {
             EntiryFilter::Pass => true,
             EntiryFilter::Allow(s) => s.contains(id),
@@ -140,8 +140,8 @@ impl fmt::Display for EntiryFilter {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExtraMods {
+    #[serde(default)] pub spells_banned: HashSet<u32>,
     #[serde(default)] pub spells: HashSet<u32>,
-    #[serde(default)] pub unlearn: HashSet<u32>,
     #[serde(default)] pub skills: HashMap<u32, i16>,
     #[serde(default)] pub items: HashMap<u32, i16>,
     #[serde(default)] pub money: i32,
@@ -158,9 +158,9 @@ impl ExtraMods {
                 }
             }
         }
-        
+
+        self.spells_banned.extend(&other.spells_banned);
         self.spells.extend(&other.spells);
-        self.unlearn.extend(&other.unlearn);
         merge_amounts(&mut self.skills, &other.skills);
         merge_amounts(&mut self.items, &other.items);
         self.money += other.money;
@@ -184,16 +184,25 @@ impl Entity for Race {
 }
 
 fn default_model_scale() -> f32 { 1.0 }
-fn default_model_speed() -> f32 { 1.0 }
+fn default_model_speed() -> f32 { 0.0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Model {
     pub name: String,
+    #[serde(default)] pub description: Option<String>,
+    #[serde(default)] pub preview: Option<String>,
     pub display_id: u32,
+    #[serde(default)] pub customizable: bool,
     #[serde(default)] pub gender: GenderFilter,
     #[serde(default = "default_model_scale")] pub scale: f32,
     #[serde(default = "default_model_speed")] pub speed: f32,
+}
+
+impl Entity for Model {
+    fn name(&self) -> &str { &self.name }
+    fn description(&self) -> Option<&str> { self.description.as_deref() }
+    fn preview(&self) -> Option<&str> { self.preview.as_deref() }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,6 +213,18 @@ pub struct Class {
     pub game_id: u32,
     #[serde(default)] pub gender: GenderFilter,
     #[serde(default)] pub races: EntiryFilter,
+    pub armor_skill: ArmorType,
+    pub weapon_skills: HashSet<WeaponType>,
+}
+
+impl Class {
+    pub fn armor_skill_index(&self) -> u8 {
+        self.armor_skill as u8
+    }
+
+    pub fn weapon_skills_string(&self) -> String {
+        self.weapon_skills.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ")
+    }
 }
 
 impl Entity for Class {
@@ -212,13 +233,23 @@ impl Entity for Class {
     fn preview(&self) -> Option<&str> { None }
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArmorType {
+    Cloth = 0,
+    Leather = 1,
+    Mail = 2,
+    Plate = 3,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArmorSet {
     pub name: String,
     #[serde(default)] pub description: Option<String>,
     #[serde(default)] pub preview: Option<String>,
-    
+
+    #[serde(rename = "type")] armortype: ArmorType,
     #[serde(default)] pub gender: GenderFilter,
     #[serde(default)] pub races: EntiryFilter,
     #[serde(default)] pub classes: EntiryFilter,
@@ -237,12 +268,67 @@ pub struct ArmorSet {
     #[serde(default)] pub trinkets: Vec<u32>,
     #[serde(default)] pub back: Option<u32>,
     #[serde(default)] pub tabard: Option<u32>,
+    #[serde(default)] pub bags: Vec<u32>,
+}
+
+impl ArmorSet {
+    pub fn armor_skill_index(&self) -> u8 {
+        self.armortype as u8
+    }
 }
 
 impl Entity for ArmorSet {
     fn name(&self) -> &str { &self.name }
     fn description(&self) -> Option<&str> { self.description.as_deref() }
     fn preview(&self) -> Option<&str> { self.preview.as_deref() }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WeaponType {
+    Axe1H,
+    Axe2H,
+    Bow,
+    Gun,
+    Mace1H,
+    Mace2H,
+    Polearm,
+    Sword1H,
+    Sword2H,
+    Staff,
+    Fist,
+    Dagger,
+    Thrown,
+    Spear,
+    Crossbow,
+    Wand,
+    Shield,
+    DualWield,
+}
+
+impl WeaponType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Axe1H => "axe1h",
+            Self::Axe2H => "axe2h",
+            Self::Bow => "bow",
+            Self::Gun => "gun",
+            Self::Mace1H => "mace1h",
+            Self::Mace2H => "mace2h",
+            Self::Polearm => "polearm",
+            Self::Sword1H => "sword1h",
+            Self::Sword2H => "sword2h",
+            Self::Staff => "staff",
+            Self::Fist => "fist",
+            Self::Dagger => "dagger",
+            Self::Thrown => "thrown",
+            Self::Spear => "spear",
+            Self::Crossbow => "crossbow",
+            Self::Wand => "wand",
+            Self::Shield => "shield",
+            Self::DualWield => "dualwield",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -252,6 +338,7 @@ pub struct WeaponSet {
     #[serde(default)] pub description: Option<String>,
     #[serde(default)] pub preview: Option<String>,
 
+    #[serde(default, rename = "type")] weapontype: HashSet<WeaponType>,
     #[serde(default)] pub gender: GenderFilter,
     #[serde(default)] pub races: EntiryFilter,
     #[serde(default)] pub classes: EntiryFilter,
@@ -259,6 +346,12 @@ pub struct WeaponSet {
     #[serde(default)] pub mainhand: Option<u32>,
     #[serde(default)] pub offhand: Option<u32>,
     #[serde(default)] pub ranged: Option<u32>,
+}
+
+impl WeaponSet {
+    pub fn weapon_skills_string(&self) -> String {
+        self.weapontype.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ")
+    }
 }
 
 impl Entity for WeaponSet {
@@ -276,7 +369,7 @@ pub struct Trait {
     #[serde(default)] pub gender: GenderFilter,
     #[serde(default)] pub races: EntiryFilter,
     #[serde(default)] pub classes: EntiryFilter,
-    #[serde(default)] pub group: String,
+    #[serde(default)] pub group: Option<String>,
     #[serde(default)] pub unique: bool,
     
     #[serde(default)] pub cost: i32,
@@ -339,6 +432,7 @@ pub struct Role {
     #[serde(default)] pub weaponsets: EntiryFilter,
     #[serde(default)] pub traits: EntiryFilter,
     #[serde(default)] pub locations: EntiryFilter,
+    #[serde(default)] pub level: Option<(u8, u8)>,
     #[serde(default, flatten)] pub mods: ExtraMods,
 }
 
@@ -369,6 +463,7 @@ pub struct Manifest {
     pub name: String,
     pub max_traits: u32,
     pub max_traits_cost: i32,
+    pub level_range: (u8, u8),
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -399,17 +494,18 @@ impl System {
     }
 }
 
-pub fn load_shared_system<P: Into<PathBuf>>(path: P) -> Result<System> {
-    let path = path.into().join("shared");
-
-    let races = load_yaml_optional(&path.join("races.yml"))?;
-    let classes = load_yaml_optional(&path.join("classes.yml"))?;
-    let armorsets = load_yaml_optional(&path.join("armorsets.yml"))?;
-    let weaponsets = load_yaml_optional(&path.join("weaponsets.yml"))?;
-    let traits = load_yaml_optional(&path.join("traits.yml"))?;
-    let locations = load_yaml_optional(&path.join("locations.yml"))?;
-
-    Ok(System { races, classes, armorsets, weaponsets, traits, locations })
+pub fn load_shared_system<P: Into<PathBuf>>(dir: P) -> Result<System> {
+    let dir = dir.into().join("system/**/*.yml");
+    if let Some(pattern) = dir.to_str() {
+        let mut system = System::default();
+        for path_result in glob::glob(pattern)? {
+            let path = path_result?;
+            system.merge(&load_yaml_required(&path)?);
+        }
+        Ok(system)
+    } else {
+        Err(anyhow::anyhow!("Invalid system path: {:?}", dir))
+    }
 }
 
 pub fn load_campaign<P: Into<PathBuf>>(path: P, id: &str, shared_system: Option<&System>) -> Result<Campaign> {
@@ -427,7 +523,7 @@ pub fn load_campaign<P: Into<PathBuf>>(path: P, id: &str, shared_system: Option<
     }
 
     let campaign_path = path.into().join("campaigns").join(id);
-    
+
     let manifest: Manifest = load_yaml_required(&campaign_path.join("manifest.yml"))?;
     let mut system: System = load_yaml_optional(&campaign_path.join("system.yml"))?;
     let roles_data: Vec<BlockDef> = load_yaml_optional(&campaign_path.join("roles.yml"))?;
@@ -460,6 +556,7 @@ pub fn load_campaign<P: Into<PathBuf>>(path: P, id: &str, shared_system: Option<
 }
 
 fn load_yaml_required<T: DeserializeOwned>(path: &Path) -> Result<T> {
+    info!("Loading system file {:?}", path);
     let file = File::open(path)?;
     let yaml: T = serde_yaml::from_reader(BufReader::new(file))?;
     Ok(yaml)

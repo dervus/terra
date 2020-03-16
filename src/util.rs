@@ -1,3 +1,14 @@
+use lazy_static::lazy_static;
+use anyhow::anyhow;
+use regex::{Regex, RegexBuilder};
+use ring::rand::{SystemRandom, SecureRandom};
+use crate::errors::TerraResult;
+
+lazy_static! {
+    static ref RNG: SystemRandom = SystemRandom::new();
+    static ref WHITESPACE_REGEX: Regex = RegexBuilder::new(r"\s+").build().unwrap();
+}
+
 pub fn capitalize<T: AsRef<str>>(input: T) -> String {
     let mut output = String::with_capacity(input.as_ref().len());
     for (index, character) in input.as_ref().to_owned().chars().enumerate() {
@@ -22,28 +33,23 @@ pub fn hexstring<T: AsRef<[u8]>>(input: T) -> String {
     output
 }
 
-// pub fn random_footnote() -> &'static str {
-//     use rand::seq::SliceRandom;
-//     let strings = [
-//         "BETTER THAN SKYLAND",
-//         "A MACHINE FOR SHEEPS",
-//         "STARVE TOGETHER",
-//         "THE ROLEPLAY SIMULATOR 2020",
-//         "TOTAL ROLEPLAY",
-//         "THIS ROLEPLAY OF MINE",
-//         "HELL, IT'S ABOUT TIME",
-//         "LEGACY OF THE BENCH",
-//         "66 FREE DLC INCLUDED",
-//         "JUST STOP HITTING UPDATE",
-//         "DARKEST TAVERN",
-//         "ROLEPLAY IS STRANGE",
-//         "HEART OF ROLEPLAY",
-//         "MASTERS WILL BE WATCHING",
-//         "AUGUST IS HERE",
-//         "QUENTAS, PLEASE",
-//         "GO AND TELL OTHERS WHAT YOU'VE SEEN",
-//         "WE DRINK YOUR MILKSHAKE",
-//         "WARCRAFT: WIZARDS AND NOBLES",
-//     ];
-//     strings.choose(&mut rand::thread_rng()).unwrap()
-// }
+pub fn generate_session_key() -> TerraResult<String> {
+    let mut key = [0u8; 32];
+    RNG.fill(&mut key).map_err(|_| anyhow!("unable to generate session key"))?;
+    Ok(hexstring(&key))
+}
+
+pub fn prepare_name(input: &str) -> String {
+    capitalize(WHITESPACE_REGEX.replace(&input.trim().to_lowercase(), " "))
+}
+
+pub fn prepare_name_extra(input: Option<&str>) -> Option<String> {
+    input.and_then(|s| {
+        let result = WHITESPACE_REGEX.replace(s.trim(), " ");
+        if result.is_empty() {
+            None
+        } else {
+            Some(result.into())
+        }
+    })
+}

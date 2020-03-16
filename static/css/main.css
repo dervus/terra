@@ -89,3 +89,81 @@ h1 {
 .site-dir:active {
     color: red;
 }
+
+.alert {
+    margin: 15px;
+    padding: 15px;
+    background-color: #fa7;
+    border: solid 1px #f66;
+    border-radius: 5px;
+    color: black;
+}
+
+/* common form classes */
+.form-controls {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 50px;
+}
+
+.form-controls button {
+    display: block;
+    padding: 12px 20px;
+    border-radius: 5px;;
+    background-color: #fda;
+    font-size: 18px;
+}
+
+.form-controls button:hover {
+    background-color: #fc8;
+}
+
+.form-controls button:active {
+    background-color: #f85;
+}
+
+/* auth form */
+form.auth fieldset {
+    display: grid;
+    grid-template-columns: 2fr 3fr;
+}
+
+form.auth fieldset div {
+    margin: 5px;
+}
+
+form.auth div.label {
+    text-align: right;
+}
+
+form.auth input {
+    padding: 5px;
+    border: solid 1px #aaa;
+    border-radius: 5px;
+}
+
+/* campaign page */
+h1 {
+    margin: 15px 0;
+}
+
+.blocks {
+    margin-top: 50px;
+}
+
+.blocks > li {
+    margin-top: 10px;
+}
+
+.blocks ul {
+    margin-left: 20px;
+}
+
+.blocks ul > li {
+    margin-top: 5px;
+}
+
+.redirect-page > * {
+    margin: 50px auto;
+    max-width: 400px;
+}

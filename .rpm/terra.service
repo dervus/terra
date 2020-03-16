@@ -1,0 +1,13 @@
+[Unit]
+Description=Front page of Skyland-infused World of Warcraft servers
+After=network.target
+
+[Service]
+Type=simple
+Environment=RUST_LOG=info
+ExecStart=/usr/sbin/terra /etc/terra/config.yml
+KillMode=process
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

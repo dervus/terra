@@ -1,15 +1,22 @@
 [package]
 name = "terra"
-version = "0.1.0"
+description = "Front page of Skyland-infused World of Warcraft servers"
+version = "0.1.0-3"
+license = "Proprietary"
 edition = "2018"
 
 [dependencies]
 thiserror = "1.0"
 anyhow = "1.0"
 log = "0.4"
-pretty_env_logger = "0.3"
+env_logger = "0.7.1"
+lazy_static = "1.4.0"
+regex = "1.3.4"
+glob = "0.3.0"
+bitflags = "1.2"
 futures-util = "0.3"
 chrono = "0.4.7"
+time = "0.1.42"
 url = "2.1"
 comrak = "0.6.2"
 serde = { version = "1.0", features = ["derive"] }
@@ -24,3 +31,12 @@ mysql_async = "0.21.1"
 cookie = "0.12.0"
 http = "0.2.0"
 warp = "0.2.0"
+
+[package.metadata.rpm.cargo]
+buildflags = ["--release"]
+
+[package.metadata.rpm.targets]
+terra = { path = "/usr/sbin/terra" }
+
+[package.metadata.rpm.files]
+"terra.service" = { path = "/usr/lib/systemd/system/terra.service" }
