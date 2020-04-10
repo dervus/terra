@@ -53,3 +53,11 @@ pub fn prepare_name_extra(input: Option<&str>) -> Option<String> {
         }
     })
 }
+
+pub fn name_to_id(input: &str) -> String {
+    input
+        .trim()
+        .replace(char::is_whitespace, "_")
+        .replace(|c| !c.is_alphanumeric(), "")
+        .to_lowercase()
+}

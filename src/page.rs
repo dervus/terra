@@ -3,6 +3,7 @@ use http::StatusCode;
 use cookie::{Cookie, SameSite};
 use maud::{html, Markup, DOCTYPE};
 use crate::db::AccountInfo;
+use crate::views;
 
 const SITE_NAME: &'static str = "Skyland Next";
 
@@ -51,8 +52,10 @@ impl Page {
     }
 
     pub fn redirect<T>(mut self, delay: usize, location: T) -> Self where T: Into<String> {
-        self.redirect = Some((delay, location.into()));
-        self
+        let location = location.into();
+        let markup = views::redirect_page(&location);
+        self.redirect = Some((delay, location));
+        self.content(markup)
     }
 
     pub fn stylesheet<T>(mut self, path: T) -> Self where T: Into<String> {

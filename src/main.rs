@@ -3,10 +3,13 @@
 mod errors;
 mod util;
 mod system;
+mod campaign;
+mod init;
 mod page;
-mod views;
-mod handlers;
+mod view;
+mod server;
 mod db;
+mod tags;
 
 use std::path::PathBuf;
 use std::net::SocketAddr;
@@ -40,10 +43,10 @@ async fn main() -> anyhow::Result<()> {
     let redis_url = Url::parse(&config.redis)?;
 
     info!("Loading shared system {:?}", &config.data_path);
-    let shared_system = system::load_shared_system(&config.data_path)?;
+    let shared_system = init::load_shared_system(&config.data_path)?;
 
     info!("Loading campaign {:?}", &config.campaign);
-    let campaign = Arc::new(system::load_campaign(&config.data_path, &config.campaign, Some(&shared_system))?);
+    let campaign = Arc::new(init::load_campaign(&config.data_path, &config.campaign, Some(&shared_system))?);
 
     info!("Initilizaing database connections");
     let redis_pool = db::RedisPool::new(mobc_redis::RedisConnectionManager::new(mobc_redis::redis::Client::open(redis_url)?));
@@ -51,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
     let chars_pool = db::MysqlPool::from_url(&config.chars_db)?;
 
     info!("Setting up HTTP server");
-    let app = handlers::make_app(handlers::AppConfig {
+    let app = server::make_app(server::AppConfig {
         files_path: config.files_path,
         data_path: config.data_path,
         redis_pool,

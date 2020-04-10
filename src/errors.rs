@@ -19,6 +19,12 @@ pub enum TerraError {
     Other(#[from] anyhow::Error),
 }
 
+impl From<TerraError> for warp::Rejection {
+    fn from(error: TerraError) -> Self {
+        warp::reject::custom(error)
+    }
+}
+
 pub type StdResult<T, E> = std::result::Result<T, E>;
 pub type TerraResult<T> = StdResult<T, TerraError>;
 

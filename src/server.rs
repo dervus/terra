@@ -3,6 +3,7 @@ use std::sync::Arc;
 use http::{Response, StatusCode};
 use warp::{Filter, Reply, Rejection};
 use serde::Deserialize;
+use crate::errors::TerraError;
 use crate::system::Campaign;
 use crate::db::{self, RedisConn, MysqlConn, SessionData, AccountInfo, Character};
 use crate::page::{Session, Page};
@@ -46,15 +47,15 @@ pub fn make_app(config: AppConfig) -> warp::filters::BoxedFilter<(impl Reply,)> 
     let with_page = warp::cookie::cookie("session")
         .and(with_redis_conn.clone())
         .and_then(async move |session_key: String, mut conn: RedisConn| -> FilterResult<(String, SessionData)> {
-            let maybe_session_data = db::fetch_session_data(&mut conn, &session_key).await.map_err(other)?;
-            let session_data = maybe_session_data.ok_or(warp::reject::custom(AppError::InvalidSession))?;
+            let maybe_session_data = db::fetch_session_data(&mut conn, &session_key).await?;
+            let session_data = maybe_session_data.ok_or(TerraError::InvalidSession)?;
             Ok((session_key, session_data))
         })
         .and(with_auth_conn.clone())
         .and_then(async move |input: (String, SessionData), conn: MysqlConn| -> FilterResult<(String, AccountInfo)> {
             let (session_key, session_data) = input;
-            let (_, maybe_account) = db::fetch_account_info(conn, session_data.account_id).await.map_err(other)?;
-            let account = maybe_account.ok_or(warp::reject::custom(AppError::InvalidSession))?;
+            let (_, maybe_account) = db::fetch_account_info(conn, session_data.account_id).await?;
+            let account = maybe_account.ok_or(TerraError::InvalidSession)?;
             Ok((session_key, account))
         })
         .map(|s| Some(s))
