@@ -16,6 +16,7 @@ create table accounts (
     nick text not null,
     email text not null,
     password_hash text not null,
+    failed_logins int4 not null default 0,
     access_level int2 not null default 0 check (access_level between 0 and 3),
     created_at timestamp not null default now_utc()
 );
@@ -26,7 +27,8 @@ create table sessions (
     session_key bytea primary key,
     account_id int4 not null references accounts on delete cascade,
     created_at timestamp not null default now_utc(),
-    last_access_at timestamp not null default now_utc()
+    last_request_at timestamp,
+    last_ip_addr inet,
 );
 
 create type character_status as enum ('pending', 'reviewed', 'rejected', 'finalized');
