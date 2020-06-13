@@ -70,6 +70,6 @@ pub fn name_to_id(input: &str) -> String {
     input
         .trim()
         .replace(char::is_whitespace, "_")
-        .replace(|c: char| !c.is_alphanumeric(), "")
+        .replace(|c: char| (c != '_' && !c.is_alphanumeric()), "")
         .to_lowercase()
 }
