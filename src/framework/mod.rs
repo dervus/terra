@@ -8,7 +8,7 @@ use std::path::Path;
 use std::fs::{File, read_to_string, read_dir};
 use std::io::BufReader;
 use anyhow::{Result as AnyhowResult};
-use log::{info, debug, trace};
+use log::{info, warn, debug, trace};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use comrak::{ComrakOptions, markdown_to_html};
@@ -53,11 +53,22 @@ pub fn load_campaign<P: AsRef<Path>>(base_path: P, id: &str) -> AnyhowResult<Cam
         #[serde(flatten)] mods: Mods,
     }
 
-    let path = base_path.as_ref().join("campaigns").join(id);
+    let campaign_path = base_path.as_ref().join("campaigns").join(id);
+    let assets_path = base_path.as_ref().join("assets");
 
-    let manifest: ManifestFile = load_yaml(&path.join("manifest.yml"))?;
-    let system = load_system(&[path.join("system.yml"), path.join("system")])?;
-    let info = load_markdown(&path.join("info.md"))?;
+    let manifest: ManifestFile = load_yaml(&campaign_path.join("manifest.yml"))?;
+    let info = load_markdown(&campaign_path.join("info.md"))?;
+    let system = load_system(&[campaign_path.join("system.yml"), campaign_path.join("system")])?;
+
+    for info in system.info_iter() {
+        if let Some(path) = &info.preview {
+            if assets_path.join(path).exists() {
+                debug!("Found preview file {:?}", path);
+            } else {
+                warn!("Missing preview file {:?}", path);
+            }
+        }
+    }
 
     let mut resolved_blocks = Vec::new();
     let mut resolved_roles = HashMap::new();

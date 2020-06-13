@@ -67,7 +67,6 @@ impl Mods {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Race {
-    pub keyword: String,
     #[serde(flatten)] pub info: Info,
     #[serde(default)] pub name_female: Option<String>,
 }
@@ -75,7 +74,6 @@ pub struct Race {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Class {
-    pub keyword: String,
     #[serde(flatten)] pub info: Info,
     #[serde(default)] pub name_female: Option<String>,
 }
@@ -149,6 +147,7 @@ impl AsRef<Info> for Location {
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct System {
     #[serde(default)] pub race: HashMap<u8, Race>,
     #[serde(default)] pub class: HashMap<u8, Class>,
@@ -185,6 +184,15 @@ impl System {
 
     pub fn view<'a>(&'a self) -> SystemView<'a> {
         SystemView::new(self)
+    }
+
+    pub fn info_iter(&self) -> impl Iterator<Item = &Info> {
+        self.race.values().map(AsRef::<Info>::as_ref)
+            .chain(self.class.values().map(AsRef::<Info>::as_ref))
+            .chain(self.armor.values().map(AsRef::<Info>::as_ref))
+            .chain(self.weapon.values().map(AsRef::<Info>::as_ref))
+            .chain(self.traits.values().map(AsRef::<Info>::as_ref))
+            .chain(self.location.values().map(AsRef::<Info>::as_ref))
     }
 }
 
