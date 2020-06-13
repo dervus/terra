@@ -1,31 +1,19 @@
 #![feature(proc_macro_hygiene, async_closure)]
 
-mod errors;
 mod util;
-mod system;
-mod campaign;
-mod init;
-mod page;
-mod view;
-mod server;
 mod db;
-mod tags;
+mod framework;
 
 use std::path::PathBuf;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use log::info;
-use url::Url;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-pub struct Config {
+struct Config {
     pub listen: SocketAddr,
-    pub files_path: PathBuf,
     pub data_path: PathBuf,
-    pub redis: String,
-    pub auth_db: String,
-    pub chars_db: String,
+    pub database_url: String,
     pub campaign: String,
 }
 
@@ -40,29 +28,26 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Loading config file {}", &config_path);
     let config: Config = serde_yaml::from_str(&std::fs::read_to_string(&config_path)?)?;
-    let redis_url = Url::parse(&config.redis)?;
-
-    info!("Loading shared system {:?}", &config.data_path);
-    let shared_system = init::load_shared_system(&config.data_path)?;
 
     info!("Loading campaign {:?}", &config.campaign);
-    let campaign = Arc::new(init::load_campaign(&config.data_path, &config.campaign, Some(&shared_system))?);
+    let campaign = framework::load_campaign(&config.data_path, &config.campaign)?;
+    println!("{:#?}", campaign);
 
-    info!("Initilizaing database connections");
-    let redis_pool = db::RedisPool::new(mobc_redis::RedisConnectionManager::new(mobc_redis::redis::Client::open(redis_url)?));
-    let auth_pool = db::MysqlPool::from_url(&config.auth_db)?;
-    let chars_pool = db::MysqlPool::from_url(&config.chars_db)?;
+    // info!("Initilizaing database connections");
+    // let redis_pool = db::RedisPool::new(mobc_redis::RedisConnectionManager::new(mobc_redis::redis::Client::open(redis_url)?));
+    // let auth_pool = db::MysqlPool::from_url(&config.auth_db)?;
+    // let chars_pool = db::MysqlPool::from_url(&config.chars_db)?;
 
-    info!("Setting up HTTP server");
-    let app = server::make_app(server::AppConfig {
-        files_path: config.files_path,
-        data_path: config.data_path,
-        redis_pool,
-        auth_pool,
-        chars_pool,
-        campaign,
-    });
+    // info!("Setting up HTTP server");
+    // let app = server::make_app(server::AppConfig {
+    //     files_path: config.files_path,
+    //     data_path: config.data_path,
+    //     redis_pool,
+    //     auth_pool,
+    //     chars_pool,
+    //     campaign,
+    // });
 
-    warp::serve(app).run(config.listen).await;
+    // warp::serve(app).run(config.listen).await;
     Ok(())
 }

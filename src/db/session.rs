@@ -1,50 +1,25 @@
-use serde::{Serialize, Deserialize};
-use mobc_redis::redis;
+use sqlx::postgres::PgPool;
+use super::DBResult;
 use crate::util;
-use crate::errors::TerraResult;
-use super::RedisConn;
 
-#[derive(Serialize, Deserialize)]
-pub struct SessionData {
-    pub account_id: u32,
-}
+const SESSION_KEY_LEN: usize = 32;
 
-fn redis_session_key(key: &str) -> String {
-    format!("session/{}", key)
-}
-
-pub async fn create_session_data(conn: &mut RedisConn, session_data: &SessionData) -> TerraResult<String> {
-    let session_key = util::generate_session_key()?;
-    let session_data_json = serde_json::to_string(&session_data).map_err(anyhow::Error::from)?;
-
-    redis::cmd("SET")
-        .arg(redis_session_key(&session_key))
-        .arg(session_data_json)
-        .query_async(conn as &mut mobc_redis::Connection)
-        .await?;
-
+pub async fn create(db: PgPool, account_id: i32) -> DBResult<[u8; SESSION_KEY_LEN]> {
+    let mut session_key = [0u8; SESSION_KEY_LEN];
+    util::fill_random_bytes(&mut session_key)?;
+    sqlx::query!("INSERT INTO sessions (session_key, account_id) VALUES ($1, $2)", session_key.as_ref(), account_id).execute(&db).await?;
     Ok(session_key)
 }
 
-pub async fn fetch_session_data(conn: &mut RedisConn, session_key: &str) -> TerraResult<Option<SessionData>> {
-    let session_data_json: Option<String> =
-        redis::cmd("GET")
-        .arg(redis_session_key(session_key))
-        .query_async(conn as &mut mobc_redis::Connection)
-        .await?;
-
-    if let Some(json) = session_data_json {
-        let session_data: SessionData = serde_json::from_str(&json)?;
-        Ok(Some(session_data))
-    } else {
-        Ok(None)
-    }
+pub async fn touch(db: PgPool, session_key: &[u8]) -> DBResult<i32> {
+    let result = sqlx::query!("UPDATE sessions SET last_access_at = now_utc() WHERE session_key = $1 RETURNING account_id", session_key).fetch_one(&db).await?;
+    Ok(result.account_id)
 }
 
-pub async fn delete_session_data(conn: &mut RedisConn, session_key: &str) -> TerraResult<()> {
-    redis::cmd("DEL")
-        .arg(redis_session_key(session_key))
-        .query_async::<_, ()>(conn as &mut mobc_redis::Connection)
-        .await
-        .map_err(|e| e.into())
+pub fn encode_key(session_key: &[u8]) -> String {
+    base64::encode_config(session_key, base64::URL_SAFE_NO_PAD)
+}
+
+pub fn decode_key(session_key: &str) -> Result<Vec<u8>, base64::DecodeError> {
+    base64::decode_config(session_key, base64::URL_SAFE_NO_PAD)
 }

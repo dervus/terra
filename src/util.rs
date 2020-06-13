@@ -2,7 +2,6 @@ use lazy_static::lazy_static;
 use anyhow::anyhow;
 use regex::{Regex, RegexBuilder};
 use ring::rand::{SystemRandom, SecureRandom};
-use crate::errors::TerraResult;
 
 lazy_static! {
     static ref RNG: SystemRandom = SystemRandom::new();
@@ -33,9 +32,22 @@ pub fn hexstring<T: AsRef<[u8]>>(input: T) -> String {
     output
 }
 
-pub fn generate_session_key() -> TerraResult<String> {
+pub fn fill_random_bytes(out: &mut [u8]) -> anyhow::Result<()> {
+    RNG.fill(out).map_err(|_| anyhow!("unable to generate random bytes"))?;
+    Ok(())
+}
+
+pub fn make_password_hash(password: &[u8]) -> anyhow::Result<String> {
+    let mut salt = [0u8; 32];
+    fill_random_bytes(&mut salt)?;
+    let argon_config = argon2::Config::default();
+    let hash = argon2::hash_encoded(password, &salt, &argon_config)?;
+    Ok(hash)
+}
+
+pub fn generate_session_key() -> anyhow::Result<String> {
     let mut key = [0u8; 32];
-    RNG.fill(&mut key).map_err(|_| anyhow!("unable to generate session key"))?;
+    fill_random_bytes(&mut key)?;
     Ok(hexstring(&key))
 }
 
@@ -58,6 +70,6 @@ pub fn name_to_id(input: &str) -> String {
     input
         .trim()
         .replace(char::is_whitespace, "_")
-        .replace(|c| !c.is_alphanumeric(), "")
+        .replace(|c: char| !c.is_alphanumeric(), "")
         .to_lowercase()
 }

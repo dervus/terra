@@ -1,16 +1,27 @@
 use std::num::NonZeroU32;
+use std::hash::Hash;
 use std::collections::{HashSet, HashMap};
 use serde::Deserialize;
-use crate::tags::Constraint;
+use super::tags::Condition;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Info {
     pub name: String,
-    #[serde(default)] pub description: Option<String>,
+    #[serde(default)] pub info: Option<String>,
     #[serde(default)] pub preview: Option<String>,
-    #[serde(default)] pub requires: Option<Constraint>,
+    #[serde(default)] pub requires: Option<Condition>,
     #[serde(default)] pub provides: HashSet<String>,
+}
+
+impl Info {
+    pub fn make_requires_string(&self) -> String {
+        self.requires.as_ref().map(|c| c.to_string()).unwrap_or_else(String::new)
+    }
+
+    pub fn make_provides_string(&self) -> String {
+        self.provides.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ")
+    }
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -30,7 +41,7 @@ impl Mods {
         I::Item: AsRef<Self>
     {
         let mut out = Self::default();
-        for x in mods { out.merge_in(x) }
+        for x in mods { out.merge_in(x.as_ref()) }
         out
     }
 
@@ -56,17 +67,17 @@ impl Mods {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Race {
+    pub keyword: String,
     #[serde(flatten)] pub info: Info,
     #[serde(default)] pub name_female: Option<String>,
-    pub game_id: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Class {
+    pub keyword: String,
     #[serde(flatten)] pub info: Info,
     #[serde(default)] pub name_female: Option<String>,
-    pub game_id: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -118,10 +129,29 @@ pub struct Location {
     #[serde(flatten)] pub mods: Mods,
 }
 
+impl AsRef<Info> for Race {
+    fn as_ref(&self) -> &Info { &self.info }
+}
+impl AsRef<Info> for Class {
+    fn as_ref(&self) -> &Info { &self.info }
+}
+impl AsRef<Info> for Armor {
+    fn as_ref(&self) -> &Info { &self.info }
+}
+impl AsRef<Info> for Weapon {
+    fn as_ref(&self) -> &Info { &self.info }
+}
+impl AsRef<Info> for Trait {
+    fn as_ref(&self) -> &Info { &self.info }
+}
+impl AsRef<Info> for Location {
+    fn as_ref(&self) -> &Info { &self.info }
+}
+
 #[derive(Debug, Default, Clone, Deserialize)]
 pub struct System {
-    #[serde(default)] pub race: HashMap<String, Race>,
-    #[serde(default)] pub class: HashMap<String, Class>,
+    #[serde(default)] pub race: HashMap<u8, Race>,
+    #[serde(default)] pub class: HashMap<u8, Class>,
     #[serde(default)] pub armor: HashMap<String, Armor>,
     #[serde(default)] pub weapon: HashMap<String, Weapon>,
     #[serde(default, rename = "trait")] pub traits: HashMap<String, Trait>,
@@ -129,8 +159,16 @@ pub struct System {
 }
 
 impl System {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn merge_in(&mut self, other: &System) {
-        fn walk<T: Clone>(into: &mut HashMap<String, T>, from: &HashMap<String, T>) {
+        fn walk<K, V>(into: &mut HashMap<K, V>, from: &HashMap<K, V>)
+        where
+            K: Clone + Hash + Eq,
+            V: Clone
+        {
             for (key, value) in from {
                 if !into.contains_key(key) {
                     into.insert(key.clone(), value.clone());
@@ -151,8 +189,8 @@ impl System {
 }
 
 pub struct SystemView<'a> {
-    pub race: Vec<(&'a String, &'a Race)>,
-    pub class: Vec<(&'a String, &'a Class)>,
+    pub race: Vec<(&'a u8, &'a Race)>,
+    pub class: Vec<(&'a u8, &'a Class)>,
     pub armor: Vec<(&'a String, &'a Armor)>,
     pub weapon: Vec<(&'a String, &'a Weapon)>,
     pub traits: Vec<(&'a String, &'a Trait)>,
@@ -161,15 +199,15 @@ pub struct SystemView<'a> {
 
 impl<'a> SystemView<'a> {
     pub fn new(system: &'a System) -> Self {
-        let mut race = system.race.iter().collect();
-        let mut class = system.class.iter().collect();
-        let mut armor = system.armor.iter().collect();
-        let mut weapon = system.weapon.iter().collect();
-        let mut traits = system.traits.iter().collect();
-        let mut location = system.location.iter().collect();
+        let mut race: Vec<_> = system.race.iter().collect();
+        let mut class: Vec<_> = system.class.iter().collect();
+        let mut armor: Vec<_> = system.armor.iter().collect();
+        let mut weapon: Vec<_> = system.weapon.iter().collect();
+        let mut traits: Vec<_> = system.traits.iter().collect();
+        let mut location: Vec<_> = system.location.iter().collect();
 
-        race.sort_by_key(|(_, e)| e.game_id);
-        class.sort_by_key(|(_, e)| e.game_id);
+        race.sort_by_key(|(id, _)| id.clone());
+        class.sort_by_key(|(id, _)| id.clone());
         armor.sort_by_key(|(_, e)| &e.info.name);
         weapon.sort_by_key(|(_, e)| &e.info.name);
         traits.sort_by_key(|(_, e)| (-e.cost, &e.info.name));
@@ -177,55 +215,4 @@ impl<'a> SystemView<'a> {
 
         Self { race, class, armor, weapon, traits, location }
     }
-}
-
-
-pub trait Entity {
-    fn kind(&self) -> &'static str;
-    fn info(&self) -> &Info;
-
-    fn name(&self) -> &str {
-        &self.info().name
-    }
-    fn description(&self) -> Option<&str> {
-        self.info().description.as_ref()
-    }
-    fn preview(&self) -> Option<&str> {
-        self.info().preview.as_ref()
-    }
-    fn requires(&self) -> Option<String> {
-        self.info().requires.map(|c| c.into_string())
-    }
-    fn provides(&self) -> Option<String> {
-        if !self.info().provides.is_empty() {
-            Some(self.info().provides.iter().collect::<Vec<_>>().join(" "))
-        } else {
-            None
-        }
-    }
-}
-
-impl Entity for Race {
-    fn kind(&self) -> &'static str { "race" }
-    fn info(&self) -> &Info { &self.info }
-}
-impl Entity for Class {
-    fn kind(&self) -> &'static str { "class" }
-    fn info(&self) -> &Info { &self.info }
-}
-impl Entity for Armor {
-    fn kind(&self) -> &'static str { "armor" }
-    fn info(&self) -> &Info { &self.info }
-}
-impl Entity for Weapon {
-    fn kind(&self) -> &'static str { "weapon" }
-    fn info(&self) -> &Info { &self.info }
-}
-impl Entity for Trait {
-    fn kind(&self) -> &'static str { "trait" }
-    fn info(&self) -> &Info { &self.info }
-}
-impl Entity for Location {
-    fn kind(&self) -> &'static str { "location" }
-    fn info(&self) -> &Info { &self.info }
 }

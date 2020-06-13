@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use maud::{html, Markup};
 use crate::db::{Character, CharacterInfo, Gender};
-use crate::system::Entity;
+use crate::system::{Info, Trait};
 use crate::campaign::Campaign;
 use crate::util;
 
@@ -48,14 +48,14 @@ fn character_form(campaign: &Campaign, data: &CharacterForm) -> Markup {
             data-trait-balance=(campaign.trait_balance)
         {
             .form-main {
-                (fieldset_role());
-                (fieldset_entity("Вид", &sv.race, data.race.as_deref()));
+                //(fieldset_role(campaign.roles.iter()));
+                (fieldset_entity("Вид", "race", &sv.race, data.race.as_deref()));
                 (fieldset_gender(data.gender));
-                (fieldset_entity("Класс", &sv.class, data.class.as_deref()));
-                (fieldset_entity("Экипировка", &sv.armor, data.armor.as_deref()));
-                (fieldset_entity("Оружее", &sv.weapon, data.weapon.as_deref()));
-                (fieldset_trait("Особенности", &sv.traits, &data.traits));
-                (fieldset_entity("Локация", &sv.location, data.location.as_deref()));
+                (fieldset_entity("Класс", "class", &sv.class, data.class.as_deref()));
+                (fieldset_entity("Экипировка", "armor", &sv.armor, data.armor.as_deref()));
+                (fieldset_entity("Оружее", "weapon", &sv.weapon, data.weapon.as_deref()));
+                (fieldset_traits("Особенности", &sv.traits, &data.traits));
+                (fieldset_entity("Локация", "location", &sv.location, data.location.as_deref()));
                 
                 fieldset {
                     .form-header {
@@ -64,7 +64,7 @@ fn character_form(campaign: &Campaign, data: &CharacterForm) -> Markup {
                     .form-inputs {
                         div {
                             input id="name" type="text" name="name" minlength="2" maxlength="12" required? placeholder="Имя";
-                            input id="name-extra" type="text" name="name_extra" maxlength="20" placeholder="Фамилия или другое";
+                            input id="name_extra" type="text" name="name_extra" maxlength="20" placeholder="Фамилия или другое";
                         }
                         div {
                             "Общее описание персонажа и его место в мире";
@@ -77,8 +77,8 @@ fn character_form(campaign: &Campaign, data: &CharacterForm) -> Markup {
                             textarea name="comment" {}
                         }
                         div {
-                            input id="wants-loadup" type="checkbox" name="wants_loadup";
-                            label for="wants-loadup" { "Хочу индивидуальный загруз" }
+                            input id="loadup" type="checkbox" name="loadup";
+                            label for="loadup" { "Хочу индивидуальный загруз" }
                         }
                         div {
                             input id="hidden" type="checkbox" name="hidden";
@@ -95,24 +95,24 @@ fn character_form(campaign: &Campaign, data: &CharacterForm) -> Markup {
     }
 }
 
-fn fieldset_role(data: &[(&String, &Role)], value: Option<&str>) -> Markup {
-    html! {
-        fieldset {
-            .form-header {
-                h2 { "Роль" }
-            }
-            .form-inputs {
-                select name="role" required? {
-                    @for (id, role) in data {
-                        @let selected = value.map(|v| v == id).unwrap_or(false);
-                        option value=(id) selected?[selected] { (role.name) }
-                    }
-                }
-            }
-            .form-info {}
-        }
-    }
-}
+// fn fieldset_role(data: &HashMap<String, Role>, value: Option<&str>) -> Markup {
+//     html! {
+//         fieldset {
+//             .form-header {
+//                 h2 { "Роль" }
+//             }
+//             .form-inputs {
+//                 select name="role" required? {
+//                     @for (id, role) in data {
+//                         @let selected = value.map(|v| v == id).unwrap_or(false);
+//                         option value=(id) selected?[selected] { (role.name) }
+//                     }
+//                 }
+//             }
+//             .form-info {}
+//         }
+//     }
+// }
 
 fn fieldset_gender(value: Option<Gender>) -> Markup {
     html! {
@@ -151,7 +151,7 @@ fn fieldset_gender(value: Option<Gender>) -> Markup {
     }
 }
 
-fn fieldset_entity<T: Entity>(title: &str, data: &[(&String, &T)], value: Option<&str>) -> Markup {
+fn fieldset_entity<T: AsRef<Info>>(title: &str, kind: &str, data: &[(&String, T)], value: Option<&str>) -> Markup {
     html! {
         fieldset {
             .form-header {
@@ -161,26 +161,28 @@ fn fieldset_entity<T: Entity>(title: &str, data: &[(&String, &T)], value: Option
             }
             .form-inputs {
                 ul.selection {
-                    @for (id, info) in data {
-                        @let input_id = format!("{}-{}", info.kind(), id);
+                    @for (id, as_info) in data {
+                        @let info = as_info.as_ref();
+                        @let input_id = format!("{}-{}", kind, id);
                         li {
                             input id=(input_id)
                                 type="radio"
-                                name=(info.kind())
+                                name=(kind)
                                 value=(id)
                                 required?
-                                selected?[value.map(|v| v == id).unwrap_or(false)]
-                                data-requires=(info.requires())
-                                data-provides=(info.provides());
+                                selected?[value.map(|v| v == id.as_str()).unwrap_or(false)]
+                                data-requires=(info.make_requires_string())
+                                data-provides=(info.make_requires_string());
 
-                            label for=(input_id) { (util::capitalize(info.name())) }
+                            label for=(input_id) { (util::capitalize(&info.name)) }
                         }
                     }
                 }
             }
             .form-info {
-                @for (id, info) in data {
-                    @let input_id = format!("{}-{}", entity, id);
+                @for (id, as_info) in data {
+                    @let info = as_info.as_ref();
+                    @let input_id = format!("{}-{}", kind, id);
                     .entity-info.hidden data-input=(input_id) {
                         .name { (util::capitalize(info.name)) }
                         @if let Some(text) = info.description {
@@ -197,6 +199,37 @@ fn fieldset_entity<T: Entity>(title: &str, data: &[(&String, &T)], value: Option
                     }
                 }
             }
+        }
+    }
+}
+
+fn fieldset_traits(title: &str, data: &[(&String, &Trait)], value: &HashSet<String>) -> Markup {
+    html! {
+        fieldset {
+            .form-header {
+                @if let Some(s) = title.into() {
+                    h2 { (title) }
+                }
+            }
+            .form-inputs {
+                ul.selection {
+                    @for (id, trait_def) in data {
+                        @let input_id = format!("trait-{}", id);
+                        li {
+                            input id=(input_id)
+                                type="checkbox"
+                                name="trait"
+                                value=(id)
+                                selected?[value.contains(id.as_str())]
+                                data-requires=(trait_def.info.make_requires_string())
+                                data-provides=(trait_def.info.make_provides_string());
+
+                            label for=(input_id) { (util::capitalize(&trait_def.info.name)) }
+                        }
+                    }
+                }
+            }
+            .form-info {}
         }
     }
 }

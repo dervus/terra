@@ -1,47 +1,96 @@
-use ring::digest::{SHA1_FOR_LEGACY_USE_ONLY, digest};
-use mysql_async::prelude::*;
+use sqlx::FromRow;
+use sqlx::postgres::PgPool;
+use super::DBResult;
 use crate::util;
-use super::{MysqlConn, MysqlResult};
 
-#[derive(Debug, Clone)]
-pub struct AccountInfo {
-    pub id: u32,
+#[derive(Debug, Clone, FromRow)]
+pub struct Account {
+    pub account_id: i32,
     pub nick: String,
-    pub access_level: u8,
+    pub email: String,
+    pub access_level: i16,
+    pub created_at: chrono::NaiveDateTime,
 }
 
-pub async fn fetch_account_info(conn: MysqlConn, id: u32) -> MysqlResult<Option<AccountInfo>> {
-    const SQL: &'static str = "\
-SELECT a.id, a.username, aa.gmlevel \
-FROM account a LEFT JOIN account_access aa ON (a.id = aa.id AND aa.RealmID = -1) \
-WHERE a.id = ?";
+pub async fn create(db: PgPool, email: &str, nick: &str, password: &str) -> DBResult<i32> {
+    let password_hash = util::make_password_hash(password.as_bytes())?;
 
-    let (conn, result) = conn.first_exec(SQL, (id,)).await?;
-    let fields: Option<(u32, String, Option<u8>)> = result;
-
-    Ok((conn, fields.map(|(id, nick, access_level)| {
-        AccountInfo { id, nick, access_level: access_level.unwrap_or(0) }
-    })))
+    let result = sqlx::query!(
+        "INSERT INTO accounts (email, nick, password_hash) VALUES ($1, $2, $3) RETURNING account_id",
+        email,
+        nick,
+        password_hash)
+        .fetch_one(&db)
+        .await?;
+    Ok(result.account_id)
 }
 
-pub async fn login_query(conn: MysqlConn, login: &str, password: &str) -> MysqlResult<Option<AccountInfo>> {
-    const SQL: &'static str = "\
-SELECT a.id, a.username, a.sha_pass_hash, aa.gmlevel \
-FROM account a LEFT JOIN account_access aa ON (a.id = aa.id AND aa.RealmID = -1) \
-WHERE UPPER(a.username) = ? OR UPPER(a.email) = ?";
+pub async fn read(db: PgPool, account_id: i32) -> DBResult<Account> {
+    sqlx::query_as!(
+        Account,
+        "SELECT account_id, nick, email, access_level, created_at FROM accounts WHERE account_id = $1 LIMIT 1",
+        account_id)
+        .fetch_one(&db)
+        .await
+        .map_err(From::from)
+}
 
-    let query = login.trim().to_uppercase();
-    let (conn, result) = conn.first_exec(SQL, (&query, &query)).await?;
-    let fields: Option<(u32, String, String, Option<u8>)> = result;
+pub async fn update_email(db: PgPool, account_id: i32, email: &str) -> DBResult<()> {
+    sqlx::query!(
+        "UPDATE accounts SET email = $2 WHERE account_id = $1",
+        account_id,
+        email)
+        .execute(&db)
+        .await?;
+    Ok(())
+}
 
-    Ok((conn, fields.and_then(|(id, nick, actual_passhash, access_level)| {
-        let input_raw = format!("{}:{}", &nick, password.trim()).to_uppercase();
-        let input_passhash = util::hexstring(digest(&SHA1_FOR_LEGACY_USE_ONLY, input_raw.as_bytes()).as_ref());
+pub async fn update_nick(db: PgPool, account_id: i32, nick: &str) -> DBResult<()> {
+    sqlx::query!(
+        "UPDATE accounts SET nick = $2 WHERE account_id = $1",
+        account_id,
+        nick)
+        .execute(&db)
+        .await?;
+    Ok(())
+}
 
-        if input_passhash == actual_passhash {
-            Some(AccountInfo { id, nick, access_level: access_level.unwrap_or(0) })
-        } else {
-            None
-        }
-    })))
+pub async fn update_password(db: PgPool, account_id: i32, password: &str) -> DBResult<()> {
+    let password_hash = util::make_password_hash(password.as_bytes())?;
+    sqlx::query!(
+        "UPDATE accounts SET password_hash = $2 WHERE account_id = $1",
+        account_id,
+        password_hash)
+        .execute(&db)
+        .await?;
+    Ok(())
+}
+
+pub async fn delete(db: PgPool, account_id: i32) -> DBResult<()> {
+    sqlx::query!(
+        "DELETE FROM accounts WHERE account_id = $1",
+        account_id)
+        .execute(&db)
+        .await?;
+    Ok(())
+}
+
+pub async fn login(db: PgPool, email_or_nick: &str, password: &str) -> DBResult<Option<Account>> {
+    let a = sqlx::query!(
+        "SELECT account_id, nick, email, access_level, created_at, password_hash FROM accounts WHERE email = lower($1) OR nick = lower($1) LIMIT 1",
+        email_or_nick)
+        .fetch_one(&db)
+        .await?;
+
+    if argon2::verify_encoded(&a.password_hash, password.as_bytes())? {
+        Ok(Some(Account {
+            account_id: a.account_id,
+            email: a.email,
+            nick: a.nick,
+            access_level: a.access_level,
+            created_at: a.created_at,
+        }))
+    } else {
+        Ok(None)
+    }
 }

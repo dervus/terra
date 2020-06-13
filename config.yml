@@ -1,7 +1,4 @@
 listen: 127.0.0.1:8000
-files_path: /home/me/code/terra/static
 data_path: /home/me/code/terra-data
-redis: redis://127.0.0.1:6379
-auth_db: mysql://trinity:trinity@localhost/wotlk_auth
-chars_db: mysql://trinity:trinity@localhost/wotlk_characters
+database_url: postgres://localhost/terra
 campaign: last-bastion

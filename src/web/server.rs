@@ -7,19 +7,9 @@ use crate::errors::TerraError;
 use crate::system::Campaign;
 use crate::db::{self, RedisConn, MysqlConn, SessionData, AccountInfo, Character};
 use crate::page::{Session, Page};
-use crate::views;
+use crate::view;
 
 type FilterResult<T> = Result<T, Rejection>;
-
-#[derive(Clone)]
-pub struct AppConfig {
-    pub files_path: PathBuf,
-    pub data_path: PathBuf,
-    pub redis_pool: db::RedisPool,
-    pub auth_pool: db::MysqlPool,
-    pub chars_pool: db::MysqlPool,
-    pub campaign: Arc<Campaign>,
-}
 
 pub fn make_app(config: AppConfig) -> warp::filters::BoxedFilter<(impl Reply,)> {
     let campaign = config.campaign;

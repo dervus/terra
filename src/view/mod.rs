@@ -1,7 +1,5 @@
 use maud::{html, Markup};
-use crate::db::CharacterInfo;
-use crate::system::{GenderFilter, Campaign};
-use crate::util::capitalize;
+use crate::campaign::Campaign;
 
 pub mod character;
 pub use character::*;
@@ -9,7 +7,7 @@ pub use character::*;
 pub fn campaign_page(campaign: &Campaign) -> Markup {
     html! {
         article {
-            (maud::PreEscaped(&campaign.index_page))
+            (maud::PreEscaped(&campaign.description))
         }
     }
 }

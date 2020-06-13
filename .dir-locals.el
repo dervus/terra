@@ -1,1 +1,1 @@
-((sql-mode . ((sql-product . mysql))))
+((sql-mode . ((sql-product . postgres))))
