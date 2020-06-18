@@ -5,18 +5,13 @@ pub mod campaign;
 use std::num::{NonZeroU8, NonZeroU32};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::fs::{File, read_to_string, read_dir};
-use std::io::BufReader;
-use anyhow::{Result as AnyhowResult};
 use log::{info, warn, debug, trace};
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
-use comrak::{ComrakOptions, markdown_to_html};
 use self::system::{System, Mods};
 use self::campaign::{Campaign, Block, Role, RoleKind};
 use crate::util;
 
-pub fn load_campaign<P: AsRef<Path>>(base_path: P, id: &str) -> AnyhowResult<Campaign> {
+pub fn load_campaign<P: AsRef<Path>>(base_path: P, id: &str) -> anyhow::Result<Campaign> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct ManifestFile {
@@ -56,8 +51,8 @@ pub fn load_campaign<P: AsRef<Path>>(base_path: P, id: &str) -> AnyhowResult<Cam
     let campaign_path = base_path.as_ref().join("campaigns").join(id);
     let assets_path = base_path.as_ref().join("assets");
 
-    let manifest: ManifestFile = load_yaml(&campaign_path.join("manifest.yml"))?;
-    let info = load_markdown(&campaign_path.join("info.md"))?;
+    let manifest: ManifestFile = util::load_yaml(&campaign_path.join("manifest.yml"))?;
+    let info = util::load_markdown(&campaign_path.join("info.md"))?;
     let system = load_system(&[campaign_path.join("system.yml"), campaign_path.join("system")])?;
 
     for info in system.info_iter() {
@@ -113,24 +108,24 @@ pub fn load_campaign<P: AsRef<Path>>(base_path: P, id: &str) -> AnyhowResult<Cam
     })
 }
 
-pub fn load_system<I>(paths: I) -> AnyhowResult<System>
+pub fn load_system<I>(paths: I) -> anyhow::Result<System>
 where
     I: IntoIterator,
     I::Item: AsRef<Path>,
 {
-    fn load_file(system: &mut System, file_path: &Path) -> AnyhowResult<()> {
-        let file = load_yaml(&file_path)?;
+    fn load_file(system: &mut System, file_path: &Path) -> anyhow::Result<()> {
+        let file = util::load_yaml(&file_path)?;
         system.merge_in(&file);
         Ok(())
     };
-    fn load_dir(system: &mut System, dir_path: &Path) -> AnyhowResult<()> {
-        for entry in read_dir(dir_path)? {
+    fn load_dir(system: &mut System, dir_path: &Path) -> anyhow::Result<()> {
+        for entry in std::fs::read_dir(dir_path)? {
             let subpath = entry?.path();
             load(system, &subpath)?;
         }
         Ok(())
     };
-    fn load(system: &mut System, path: &Path) -> AnyhowResult<()> {
+    fn load(system: &mut System, path: &Path) -> anyhow::Result<()> {
         trace!("Looking at {:?}", path);
         if path.is_dir() {
             load_dir(system, path)?;
@@ -151,34 +146,4 @@ where
     }
 
     Ok(system)
-}
-
-fn load_yaml<T: DeserializeOwned>(path: &Path) -> AnyhowResult<T> {
-    info!("Loading system file {:?}", path);
-    let file = File::open(path)?;
-    let yaml: T = serde_yaml::from_reader(BufReader::new(file))?;
-    Ok(yaml)
-}
-
-fn load_yaml_if_exists<T: DeserializeOwned>(path: &Path) -> AnyhowResult<Option<T>> {
-    if path.exists() {
-        load_yaml(path).map(Some)
-    } else {
-        Ok(None)
-    }
-}
-
-fn load_markdown(path: &Path) -> AnyhowResult<String> {
-    let source = read_to_string(path)?;
-    let options = ComrakOptions {
-        smart: true,
-        ext_strikethrough: true,
-        ext_table: true,
-        ext_autolink: true,
-        ext_tasklist: true,
-        ext_superscript: true,
-        ext_footnotes: true,
-        .. ComrakOptions::default()
-    };
-    Ok(markdown_to_html(&source, &options))
 }

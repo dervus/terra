@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use maud::{html, Markup};
 use crate::db::{Character, CharacterInfo, Gender};
-use crate::system::{Info, Trait};
-use crate::campaign::Campaign;
+use crate::framework::system::{Info, Trait};
+use crate::framework::campaign::Campaign;
 use crate::util;
 
 pub fn character_index(characters: &[CharacterInfo]) -> Markup {

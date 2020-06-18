@@ -1,3 +1,8 @@
+use std::path::Path;
+use std::fs::File;
+use std::io::BufReader;
+use log::info;
+use serde::de::DeserializeOwned;
 use lazy_static::lazy_static;
 use anyhow::anyhow;
 use regex::{Regex, RegexBuilder};
@@ -72,4 +77,43 @@ pub fn name_to_id(input: &str) -> String {
         .replace(char::is_whitespace, "_")
         .replace(|c: char| (c != '_' && !c.is_alphanumeric()), "")
         .to_lowercase()
+}
+
+pub fn load_yaml<T, P>(path: P) -> anyhow::Result<T>
+where
+    T: DeserializeOwned,
+    P: AsRef<Path>,
+{
+    info!("Loading file {:?}", path.as_ref());
+    let file = File::open(path.as_ref())?;
+    let yaml: T = serde_yaml::from_reader(BufReader::new(file))?;
+    Ok(yaml)
+}
+
+pub fn load_yaml_if_exists<T, P>(path: P) -> anyhow::Result<Option<T>>
+where
+    T: DeserializeOwned,
+    P: AsRef<Path>,
+{
+    if path.as_ref().exists() {
+        load_yaml(path).map(Some)
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn load_markdown<P: AsRef<Path>>(path: P) -> anyhow::Result<String> {
+    info!("Loading file {:?}", path.as_ref());
+    let source = std::fs::read_to_string(path.as_ref())?;
+    let options = comrak::ComrakOptions {
+        smart: true,
+        ext_strikethrough: true,
+        ext_table: true,
+        ext_autolink: true,
+        ext_tasklist: true,
+        ext_superscript: true,
+        ext_footnotes: true,
+        .. Default::default()
+    };
+    Ok(comrak::markdown_to_html(&source, &options))
 }

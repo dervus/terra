@@ -4,11 +4,11 @@ use crate::util;
 
 const SESSION_KEY_LEN: usize = 32;
 
-pub async fn create(db: PgPool, account_id: i32) -> DBResult<[u8; SESSION_KEY_LEN]> {
+pub async fn create(db: PgPool, account_id: i32) -> DBResult<Vec<u8>> {
     let mut session_key = [0u8; SESSION_KEY_LEN];
     util::fill_random_bytes(&mut session_key)?;
     sqlx::query!("INSERT INTO sessions (session_key, account_id) VALUES ($1, $2)", session_key.as_ref(), account_id).execute(&db).await?;
-    Ok(session_key)
+    Ok(session_key.into())
 }
 
 pub async fn touch(db: PgPool, session_key: &[u8]) -> DBResult<i32> {

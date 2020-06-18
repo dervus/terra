@@ -2,7 +2,7 @@ use thiserror::Error;
 use crate::db;
 
 #[derive(Debug, Error)]
-pub enum TerraError {
+pub enum WebError {
     #[error("")]
     InvalidInput,
     #[error("")]
@@ -10,38 +10,39 @@ pub enum TerraError {
     #[error("")]
     LowAccessLevel,
     #[error("")]
-    RedisPoolFailure(#[from] mobc::Error<db::RedisError>),
-    #[error("")]
-    RedisFailure(#[from] db::RedisError),
-    #[error("")]
-    MysqlFailure(#[from] db::MysqlError),
+    DBError(#[from] db::DBError),
     #[error("")]
     Other(#[from] anyhow::Error),
 }
 
-impl From<TerraError> for warp::Rejection {
-    fn from(error: TerraError) -> Self {
+impl From<WebError> for warp::Rejection {
+    fn from(error: WebError) -> Self {
         warp::reject::custom(error)
     }
 }
 
-pub type StdResult<T, E> = std::result::Result<T, E>;
-pub type TerraResult<T> = StdResult<T, TerraError>;
+impl From<db::DBError> for warp::Rejection {
+    fn from(error: db::DBError) -> Self {
+        warp::reject::custom(WebError::from(error))
+    }
+}
 
-impl warp::reject::Reject for TerraError {}
+pub type WebResult<T> = Result<T, WebError>;
+
+impl warp::reject::Reject for WebError {}
 
 pub fn invalid_input() -> warp::Rejection {
-    warp::reject::custom(TerraError::InvalidInput)
+    warp::reject::custom(WebError::InvalidInput)
 }
 
 pub fn invalid_session() -> warp::Rejection {
-    warp::reject::custom(TerraError::InvalidSession)
+    warp::reject::custom(WebError::InvalidSession)
 }
 
 pub fn low_access_level() -> warp::Rejection {
-    warp::reject::custom(TerraError::LowAccessLevel)
+    warp::reject::custom(WebError::LowAccessLevel)
 }
 
 pub fn other(error: anyhow::Error) -> warp::Rejection {
-    warp::reject::custom(TerraError::Other(error))
+    warp::reject::custom(WebError::Other(error))
 }

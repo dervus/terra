@@ -1,20 +1,13 @@
-use time::Duration;
 use http::StatusCode;
-use cookie::{Cookie, SameSite};
 use maud::{html, Markup, DOCTYPE};
-use crate::db::AccountInfo;
+use super::session::WithSession;
+use crate::db::account::Account;
 use crate::view;
 
-const SITE_NAME: &'static str = "Skyland Next";
-
-pub enum Session {
-    Unauthed,
-    JustLoggedOut,
-    LoggedIn(String, AccountInfo),
-}
+const SITE_NAME: &'static str = "Terra";
 
 pub struct Page {
-    pub session: Session,
+    pub account_info: Option<AccountInfo>,
     pub status: StatusCode,
     pub redirect: Option<(usize, String)>,
     pub title: Option<String>,
@@ -23,10 +16,16 @@ pub struct Page {
     pub content: Option<Markup>,
 }
 
+struct AccountInfo {
+    id: i32,
+    nick: String,
+    access_level: i16,
+}
+
 impl Page {
     pub fn new() -> Self {
         Self {
-            session: Session::Unauthed,
+            account_info: None,
             status: StatusCode::OK,
             title: None,
             redirect: None,
@@ -36,8 +35,12 @@ impl Page {
         }
     }
 
-    pub fn session(mut self, session: Session) -> Self {
-        self.session = session;
+    pub fn account<T>(mut self, account: Option<T>) -> Self where T: AsRef<Account> {
+        self.account_info = account.map(|a| a.as_ref()).map(|a| AccountInfo {
+            id: a.account_id,
+            nick: a.nick.clone(),
+            access_level: a.access_level,
+        });
         self
     }
 
@@ -73,6 +76,10 @@ impl Page {
         self
     }
 
+    pub fn wrap(self, ws: WithSession) -> WithSession {
+        ws.with(self)
+    }
+
     pub fn into_markup(self) -> Markup {
         html! {
             (DOCTYPE);
@@ -105,9 +112,9 @@ impl Page {
                                 li.dir { a.site-dir href="/characters" { "Персонажи" } }
                                 li.dir { a.site-dir href="/forum" { "Форум" } }
                                 li { "\u{00B7}" }
-                                @if let Session::LoggedIn(_, account_info) = self.session {
+                                @if let Some(info) = self.account_info {
                                     li.auth {
-                                        span.current-user { (account_info.nick) }
+                                        span.current-user { (info.nick) }
                                     }
                                     li.auth {
                                         form method="post" action="/logout" {
@@ -130,43 +137,4 @@ impl Page {
             }
         }
     }
-}
-
-impl warp::Reply for Page {
-    fn into_response(self) -> warp::reply::Response {
-        let mut res = http::Response::builder()
-            .status(self.status)
-            .header(http::header::CONTENT_TYPE, http::header::HeaderValue::from_static("text/html; charset=utf-8"));
-        
-        res = match &self.session {
-            Session::LoggedIn(session_key, _) =>
-                res.header(http::header::SET_COOKIE, update_session_cookie(session_key.clone()).to_string()),
-            Session::JustLoggedOut =>
-                res.header(http::header::SET_COOKIE, remove_session_cookie().to_string()),
-            Session::Unauthed =>
-                res,
-        };
-            
-        res.body(self.into_markup().into_string().into()).unwrap()
-    }
-}
-
-fn update_session_cookie(session_key: String) -> Cookie<'static> {
-    Cookie::build("session", session_key)
-        .path("/")
-        .http_only(true)
-        .secure(!cfg!(debug_assertions))
-        .same_site(SameSite::Strict)
-        .max_age(Duration::days(90))
-        .finish()
-}
-    
-fn remove_session_cookie() -> Cookie<'static> {
-    Cookie::build("session", "")
-        .path("/")
-        .http_only(true)
-        .secure(!cfg!(debug_assertions))
-        .same_site(SameSite::Strict)
-        .max_age(Duration::zero())
-        .finish()
 }

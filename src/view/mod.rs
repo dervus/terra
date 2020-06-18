@@ -1,13 +1,13 @@
 use maud::{html, Markup};
-use crate::campaign::Campaign;
+use crate::framework::campaign::Campaign;
 
-pub mod character;
-pub use character::*;
+// pub mod character;
+// pub use character::*;
 
 pub fn campaign_page(campaign: &Campaign) -> Markup {
     html! {
         article {
-            (maud::PreEscaped(&campaign.description))
+            (maud::PreEscaped(&campaign.info))
         }
     }
 }
