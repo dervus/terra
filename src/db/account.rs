@@ -1,7 +1,9 @@
 use sqlx::FromRow;
 use sqlx::postgres::PgPool;
-use super::DBResult;
+use crate::error::{AppError, AppResult};
 use crate::util;
+
+const MAX_FAILED_LOGINS: i32 = 2;
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Account {
@@ -12,42 +14,33 @@ pub struct Account {
     pub created_at: chrono::NaiveDateTime,
 }
 
-pub async fn create(db: PgPool, email: &str, nick: &str, password: &str) -> DBResult<i32> {
-    let password_hash = util::make_password_hash(password.as_bytes())?;
-
-    let result = sqlx::query!(
-        "INSERT INTO accounts (email, nick, password_hash) VALUES ($1, $2, $3) RETURNING account_id",
-        email,
-        nick,
-        password_hash)
-        .fetch_one(&db)
-        .await?;
-    Ok(result.account_id)
-}
-
-pub async fn read(db: PgPool, account_id: i32) -> DBResult<Account> {
+pub async fn create(db: PgPool, email: &str, nick: &str, password: &str) -> AppResult<Account> {
     sqlx::query_as!(
         Account,
-        "SELECT account_id, nick, email, access_level, created_at FROM accounts WHERE account_id = $1 LIMIT 1",
+        "INSERT INTO account (email, nick, password_hash) VALUES ($1, $2, $3) \
+         RETURNING account_id, nick, email, access_level, created_at",
+        email,
+        nick,
+        make_password_hash(email, password))
+        .fetch_one(&db)
+        .await
+        .map_err(From::from)
+}
+
+pub async fn read(db: PgPool, account_id: i32) -> AppResult<Account> {
+    sqlx::query_as!(
+        Account,
+        "SELECT account_id, nick, email, access_level, created_at \
+         FROM account WHERE account_id = $1 LIMIT 1",
         account_id)
         .fetch_one(&db)
         .await
         .map_err(From::from)
 }
 
-pub async fn update_email(db: PgPool, account_id: i32, email: &str) -> DBResult<()> {
+pub async fn update_nick(db: PgPool, account_id: i32, nick: &str) -> AppResult<()> {
     sqlx::query!(
-        "UPDATE accounts SET email = $2 WHERE account_id = $1",
-        account_id,
-        email)
-        .execute(&db)
-        .await?;
-    Ok(())
-}
-
-pub async fn update_nick(db: PgPool, account_id: i32, nick: &str) -> DBResult<()> {
-    sqlx::query!(
-        "UPDATE accounts SET nick = $2 WHERE account_id = $1",
+        "UPDATE account SET nick = $2 WHERE account_id = $1",
         account_id,
         nick)
         .execute(&db)
@@ -55,42 +48,83 @@ pub async fn update_nick(db: PgPool, account_id: i32, nick: &str) -> DBResult<()
     Ok(())
 }
 
-pub async fn update_password(db: PgPool, account_id: i32, password: &str) -> DBResult<()> {
-    let password_hash = util::make_password_hash(password.as_bytes())?;
+pub async fn update_email_password(db: PgPool, account_id: i32, email: &str, password: &str) -> AppResult<()> {
     sqlx::query!(
-        "UPDATE accounts SET password_hash = $2 WHERE account_id = $1",
+        "UPDATE account SET email = $2, password_hash = $3 WHERE account_id = $1",
         account_id,
-        password_hash)
+        email,
+        make_password_hash(email, password))
         .execute(&db)
-        .await?;
-    Ok(())
+        .await
+        .map(|_| ())
+        .map_err(From::from)
 }
 
-pub async fn delete(db: PgPool, account_id: i32) -> DBResult<()> {
-    sqlx::query!(
-        "DELETE FROM accounts WHERE account_id = $1",
-        account_id)
+pub async fn delete(db: PgPool, account_id: i32) -> AppResult<()> {
+    sqlx::query!("DELETE FROM account WHERE account_id = $1", account_id)
         .execute(&db)
-        .await?;
-    Ok(())
+        .await
+        .map(|_| ())
+        .map_err(From::from)
 }
 
-pub async fn login(db: PgPool, email_or_nick: &str, password: &str) -> DBResult<Option<Account>> {
-    let a = sqlx::query!(
-        "SELECT account_id, nick, email, access_level, created_at, password_hash FROM accounts WHERE email = lower($1) OR nick = lower($1) LIMIT 1",
+#[derive(Debug)]
+pub enum LoginOutcome {
+    NotFound,
+    CaptchaRequired,
+    WrongPassword,
+    Success(Account),
+}
+
+pub async fn login(db: PgPool, email_or_nick: &str, password: &str, captcha_validated: bool) -> AppResult<LoginOutcome> {
+    let maybe_account = sqlx::query!(
+        "SELECT account_id, nick, email, access_level, failed_logins, created_at, password_hash \
+         FROM account \
+         WHERE lower(email) = lower($1) OR lower(nick) = lower($1) \
+         LIMIT 1",
         email_or_nick)
-        .fetch_one(&db)
+        .fetch_optional(&db)
         .await?;
 
-    if argon2::verify_encoded(&a.password_hash, password.as_bytes())? {
-        Ok(Some(Account {
-            account_id: a.account_id,
-            email: a.email,
-            nick: a.nick,
-            access_level: a.access_level,
-            created_at: a.created_at,
-        }))
+    let account = if let Some(account) = maybe_account {
+        account
     } else {
-        Ok(None)
+        return Ok(LoginOutcome::NotFound)
+    };
+
+    if account.failed_logins >= MAX_FAILED_LOGINS && !captcha_validated {
+        return Ok(LoginOutcome::CaptchaRequired);
     }
+
+    if account.password_hash != make_password_hash(&account.email, password) {
+        incr_failed_logins(db.clone(), account.account_id).await;
+        return Ok(LoginOutcome::WrongPassword);
+    }
+
+    reset_failed_logins(db.clone(), account.account_id).await;
+    Ok(LoginOutcome::Success(Account {
+        account_id: account.account_id,
+        email: account.email,
+        nick: account.nick,
+        access_level: account.access_level,
+        created_at: account.created_at,
+    }))
+}
+
+async fn incr_failed_logins(db: PgPool, account_id: i32) {
+    sqlx::query!("UPDATE account SET failed_logins = failed_logins + 1 WHERE account_id = $1", account_id)
+        .execute(&db)
+        .await;
+}
+
+async fn reset_failed_logins(db: PgPool, account_id: i32) {
+    sqlx::query!("UPDATE account SET failed_logins = 0 WHERE account_id = $1", account_id)
+        .execute(&db)
+        .await;
+}
+
+fn make_password_hash(email: &str, password: &str) -> String {
+    let input = format!("{}:{}", email.to_uppercase(), password.to_uppercase());
+    let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, input.as_bytes());
+    util::hexstring(digest)
 }

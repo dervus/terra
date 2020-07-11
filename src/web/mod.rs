@@ -1,147 +1,99 @@
-mod error;
-mod session;
-mod page;
+pub mod session;
+mod auth;
+mod pc;
 
-use std::path::PathBuf;
-use std::sync::Arc;
-use http::{Response, StatusCode};
+use std::net::{SocketAddr};
+use http::StatusCode;
 use warp::{Filter, Reply, Rejection};
 use warp::filters::BoxedFilter;
-use serde::Deserialize;
+use crate::{ctx, campaign};
 use crate::view;
-use crate::db;
-use crate::{CtxRef, CCtxRef};
-use self::session::{Session, WithSession};
-use self::page::Page;
+use self::session::Session;
+use crate::view::Page;
+use crate::init::{CtxRef, CCtxRef};
 
-type FilterResult<T> = Result<T, Rejection>;
+pub type FilterResult<T> = Result<T, Rejection>;
 
-struct Handler {
-    ctx: CtxRef,
-    session: Option<Session>,
-    session_update: bool,
-    reply: HandlerReply,
+fn with<T>(value: T) -> BoxedFilter<(T,)>
+where
+    T: 'static + Clone + Send + Sync,
+{
+    warp::any().map(move || value.clone()).boxed()
 }
 
-enum HandlerReply {
-    Page(Page),
-    Other(Box<dyn Reply>),
-}
-
-impl From<Page> for HandlerReply {
-    fn from(page: Page) -> Self { Self::Page(page) }
-}
-
-impl<T: Reply + 'static> From<T> for HandlerReply {
-    fn from(reply: T) -> Self { Self::Other(Box::new(reply)) }
-}
-
-impl Reply for Handler {
-    fn into_response(self) -> warp::reply::Response {
-        let reply: Box<dyn Reply> = match self.reply {
-            HandlerReply::Page(page) => {
-                page.site_title = self.ctx.site_config.title.clone();
-                Box::new(warp::reply::html(page.into_markup().into_string()))
-            },
-            HandlerReply::Other(other) => other,
-        };
-        if let Some(session) = self.session {
-            warp::reply::with_header(reply, http::header::SET_COOKIE, "asd").into_response()
-        } else {
-            reply.into_response()
-        }
-    }
-}
-
-fn with_context(ctx: CtxRef) -> BoxedFilter<(CtxRef,)> {
-    warp::any().map(move || ctx.clone()).boxed()
-}
-
-fn with_session(ctx: CtxRef) -> BoxedFilter<(WithSession,)> {
-    with_context(ctx)
-        .and(warp::cookie::optional(session::COOKIE_NAME))
-        .and_then(async move |ctx: CtxRef, encoded_key: Option<String>| -> FilterResult<WithSession> {
-            let decoded_key = encoded_key.and_then(|k| db::session::decode_key(&k).map(Some).unwrap_or(None));
-            if let Some(key) = decoded_key {
-                let account_id = db::session::touch(ctx.main_db.clone(), &key).await.map_err(Rejection::from)?;
-                let account = db::account::read(ctx.main_db.clone(), account_id).await.map_err(Rejection::from)?;
-                let session = Session { key, account };
-                Ok(WithSession::new().init(Some(session)))
-            } else {
-                Ok(WithSession::new())
-            }
-        })
+fn campaign_param() -> BoxedFilter<(CCtxRef,)> {
+    warp::path::param()
+        .and_then(async move |id: String| campaign(id).map_err(Rejection::from))
         .boxed()
 }
 
-fn post_login(ctx: CtxRef) -> BoxedFilter<(impl Reply,)> {
-    #[derive(Deserialize)]
-    struct Form { name: String, password: String }
-    with_context(ctx)
-        .and(warp::post())
+pub fn create_server() -> BoxedFilter<(impl Reply,)> {
+    let assets = warp::get()
+        .and(warp::path("assets"))
+        .and(warp::fs::dir(ctx().assets_path.clone()));
+
+    let campaign_front_page = warp::get()
+        .and(campaign_param())
+        .and(warp::path::end())
+        .and(session::fetch_session())
+        .map(|cgn: CCtxRef, session: Option<Session>| view::index::campaign(&cgn.data).render(session.as_ref()));
+
+    let root = warp::get()
+        .and(warp::path::end())
+        .and(session::fetch_session())
+        .map(|session: Option<Session>| Page::untitled().content(maud::PreEscaped(ctx().site_pages.front.clone())).render(session.as_ref()));
+
+    let login_page = warp::get()
         .and(warp::path!("login"))
+        .and(session::unauthed_required())
+        .and(warp::cookie::optional("captcha").map(|c: Option<String>| c.map(|s| s == "true").unwrap_or(false)))
+        .map(auth::login_page);
+
+    let login_action = warp::post()
+        .and(warp::path!("login"))
+        .and(session::unauthed_required())
         .and(warp::body::form())
-        .and_then(async move |ctx: CtxRef, form: Form| -> FilterResult<WithSession> {
-            let maybe_account = db::account::login(ctx.main_db.clone(), &form.name, &form.password).await.map_err(Rejection::from)?;
-            if let Some(account) = maybe_account {
-                let key = db::session::create(ctx.main_db.clone(), account.account_id).await.map_err(Rejection::from)?;
-                Ok(WithSession::new().update(Some(Session { key, account })))
-            } else {
-                Ok(WithSession::new())
-            }
-        })
-        .map(|ws: WithSession| if let Some(session) = &ws.session {
-            ws.with(Page::new()
-                    .title("Вход")
-                    .account(Some(&session.account))
-                    .redirect(5, "/"))
-        } else {
-            ws.with(Page::new()
-                    .title("Вход")
-                    .redirect(5, "/fuck/you"))
-        })
+        .and(warp::addr::remote().map(|a: Option<SocketAddr>| a.map(|a| a.ip())))
+        .and(warp::cookie::optional("redirect"))
+        .and_then(auth::login_action);
+
+    let logout_action = warp::post()
+        .and(warp::path!("logout"))
+        .and(session::fetch_session_required())
+        .and_then(auth::logout_action);
+
+    let register_page = warp::get()
+        .and(warp::path!("register"))
+        .and(session::unauthed_required())
+        .map(auth::register_page);
+
+    let register_action = warp::post()
+        .and(warp::path!("register"))
+        .and(session::unauthed_required())
+        .and(warp::body::form())
+        .and(warp::addr::remote().map(|a: Option<SocketAddr>| a.map(|a| a.ip())))
+        .and(warp::cookie::optional("redirect"))
+        .and_then(auth::register_action);
+
+    let pc_new_page = warp::get()
+        .and(warp::path("characters"))
+        .and(warp::path("new"))
+        .and(campaign_param())
+        .and(warp::path::end())
+        .and(session::fetch_session_required())
+        .map(pc::new_page);
+
+    assets
+        .or(campaign_front_page)
+        .or(root)
+        .or(login_page)
+        .or(login_action)
+        .or(logout_action)
+        .or(register_page)
+        .or(register_action)
+        .or(pc_new_page)
+        .recover(crate::error::handle_rejection)
         .boxed()
-}
-
-pub fn create_server(ctx: CtxRef) -> BoxedFilter<(impl Reply,)> {
-    warp::any().map(|| "Hello World!").boxed()
-    // let with_ctx = warp::any().map(move || ctx.clone());
-
-    // // utility combinators
-    // let with_page = warp::cookie::cookie("session")
-    //     .and(with_redis_conn.clone())
-    //     .and_then(async move |session_key: String, mut conn: RedisConn| -> FilterResult<(String, SessionData)> {
-    //         let maybe_session_data = db::fetch_session_data(&mut conn, &session_key).await?;
-    //         let session_data = maybe_session_data.ok_or(TerraError::InvalidSession)?;
-    //         Ok((session_key, session_data))
-    //     })
-    //     .and(with_auth_conn.clone())
-    //     .and_then(async move |input: (String, SessionData), conn: MysqlConn| -> FilterResult<(String, AccountInfo)> {
-    //         let (session_key, session_data) = input;
-    //         let (_, maybe_account) = db::fetch_account_info(conn, session_data.account_id).await?;
-    //         let account = maybe_account.ok_or(TerraError::InvalidSession)?;
-    //         Ok((session_key, account))
-    //     })
-    //     .map(|s| Some(s))
-    //     .or(warp::any().map(|| None))
-    //     .unify()
-    //     .map(|input: Option<(String, AccountInfo)>| if let Some((key, account)) = input {
-    //         Page::new().session(Session::LoggedIn(key, account))
-    //     } else {
-    //         Page::new()
-    //     });
-
-    // let with_authed_page = with_page.clone()
-    //     .and_then(async move |page: Page| -> FilterResult<(Page, AccountInfo)> {
-    //         if let Session::LoggedIn(_, ref account) = page.session {
-    //             let cloned_account = account.clone();
-    //             Ok((page, cloned_account))
-    //         } else {
-    //             Err(low_access_level()) // FIXME
-    //         }
-    //     })
-    //     .untuple_one();
-    
     // // handlers
     // let static_files = warp::get()
     //     .and(warp::path("static"))
@@ -161,31 +113,15 @@ pub fn create_server(ctx: CtxRef) -> BoxedFilter<(impl Reply,)> {
     //     .and(with_page.clone())
     //     .map(|page: Page| page.title("Вход").content(views::login()));
 
-    // #[derive(Deserialize)]
-    // struct LoginForm {
-    //     name: String,
-    //     password: String,
-    // }
-    // let login_action = warp::post()
-    //     .and(warp::path!("login"))
-    //     .and(warp::body::form())
-    //     .and(with_page.clone())
-    //     .and(with_auth_conn.clone())
-    //     .and(with_redis_conn.clone())
-    //     .and_then(async move |form: LoginForm, page: Page, mysql: MysqlConn, mut redis: RedisConn| -> FilterResult<Page> {
-    //         if let (_, Some(account)) = db::login_query(mysql, &form.name, &form.password).await.map_err(other)? {
-    //             let key = db::create_session_data(&mut redis, &SessionData { account_id: account.id }).await.map_err(other)?;
-    //             Ok(page
-    //                .status(StatusCode::CREATED)
-    //                .session(Session::LoggedIn(key, account))
-    //                .redirect(0, "/")
-    //                .content(views::redirect_page("/")))
-    //         } else {
-    //             Ok(page
-    //                .status(StatusCode::FORBIDDEN)
-    //                .content(views::login()))
-    //         }
-    //     });
+    // let login_action = session_update_reply(
+    //     warp::post()
+    //         .and(warp::path!("login"))
+    //         .and(warp::body::form())
+    //         .and(with_context())
+    //         .and_then(post_login)
+    //         .boxed());
+
+    // login_action
 
     // let logout_action = warp::post()
     //     .and(warp::path!("logout"))

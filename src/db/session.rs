@@ -1,25 +1,46 @@
 use sqlx::postgres::PgPool;
-use super::DBResult;
+use crate::error::AppResult;
+use super::account::Account;
 use crate::util;
 
 const SESSION_KEY_LEN: usize = 32;
 
-pub async fn create(db: PgPool, account_id: i32) -> DBResult<Vec<u8>> {
-    let mut session_key = [0u8; SESSION_KEY_LEN];
-    util::fill_random_bytes(&mut session_key)?;
-    sqlx::query!("INSERT INTO sessions (session_key, account_id) VALUES ($1, $2)", session_key.as_ref(), account_id).execute(&db).await?;
-    Ok(session_key.into())
+pub async fn create(db: PgPool, account_id: i32) -> AppResult<String> {
+    let session_key = generate_session_key()?;
+    sqlx::query!("INSERT INTO session (session_key, account_id) VALUES ($1, $2)", &session_key, account_id).execute(&db).await?;
+    Ok(session_key)
 }
 
-pub async fn touch(db: PgPool, session_key: &[u8]) -> DBResult<i32> {
-    let result = sqlx::query!("UPDATE sessions SET last_access_at = now_utc() WHERE session_key = $1 RETURNING account_id", session_key).fetch_one(&db).await?;
-    Ok(result.account_id)
+pub async fn touch(db: PgPool, session_key: &str) -> AppResult<Option<Account>> {
+    let result = sqlx::query_as!(
+        Account,
+        "UPDATE session s \
+         SET last_request_at = now_utc() \
+         FROM account a \
+         WHERE session_key = $1 AND a.account_id = s.account_id \
+         RETURNING a.account_id, a.nick, a.email, a.access_level, a.created_at",
+        session_key)
+        .fetch_optional(&db)
+        .await?;
+    Ok(result)
 }
 
-pub fn encode_key(session_key: &[u8]) -> String {
-    base64::encode_config(session_key, base64::URL_SAFE_NO_PAD)
+pub async fn delete(db: PgPool, session_key: &str) -> AppResult<()> {
+    sqlx::query!("DELETE FROM session WHERE session_key = $1", session_key)
+        .execute(&db)
+        .await
+        .map(|_| ())
+        .map_err(From::from)
 }
 
-pub fn decode_key(session_key: &str) -> Result<Vec<u8>, base64::DecodeError> {
-    base64::decode_config(session_key, base64::URL_SAFE_NO_PAD)
+pub struct LogoutOutcome;
+
+pub async fn logout(db: PgPool, session_key: &str) -> AppResult<LogoutOutcome> {
+    delete(db, session_key).await.map(|_| LogoutOutcome)
+}
+
+fn generate_session_key() -> AppResult<String> {
+    let mut key = [0u8; SESSION_KEY_LEN];
+    util::fill_random_bytes(&mut key)?;
+    Ok(base64::encode_config(key, base64::URL_SAFE_NO_PAD))
 }

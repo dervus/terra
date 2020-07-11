@@ -93,54 +93,7 @@ pub struct Character {
 }
 
 impl Character {
-    pub fn from_formdata(role: Option<EntityId>, data: &[(String, String)]) -> TerraResult<Self> {
-        let opt = |key: &str| -> Option<String> {
-            data.iter().find(|(k,_)| k == key).map(|(_,v)| v.clone())
-        };
-        let req = |key: &str| -> TerraResult<String> {
-            opt(key).ok_or(TerraError::InvalidInput)
-        };
-        
-        let race = req("race")?;
-        let gender = match req("gender")?.as_ref() {
-            "male" => Gender::Male,
-            "female" => Gender::Female,
-            _ => return Err(TerraError::InvalidInput),
-        };
-        let model = opt("model");
-        let class = req("class")?;
-        let armorset = opt("armorset");
-        let weaponset = opt("weaponset");
-        let traits = data.iter().filter(|(k,_)| k == "traits").map(|(_,v)| v.clone()).collect::<HashSet<_>>();
-        let location = req("location")?;
-        let name = req("name")?;
-        let name_extra = opt("name_extra");
-        let description = req("description")?;
-        let comment = req("comment")?;
-        let wants_loadup = data.iter().find(|(k,_)| k == "wants_loadup").is_some();
-        let hidden = data.iter().find(|(k,_)| k == "hidden").is_some();
-
-        let name = util::prepare_name(&name);
-        let name_extra = util::prepare_name_extra(name_extra.as_deref());
-
-        Ok(Self {
-            role,
-            race,
-            gender,
-            model,
-            class,
-            armorset,
-            weaponset,
-            traits,
-            location,
-            name,
-            name_extra,
-            description,
-            comment,
-            wants_loadup,
-            hidden
-        })
-    }
+    
 
     pub fn validate(&self, _campaign: &Campaign) -> TerraResult<()> {
         if !NAME_REGEX.is_match(&self.name) {

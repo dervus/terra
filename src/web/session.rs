@@ -1,13 +1,35 @@
 use time::Duration;
 use cookie::{Cookie, SameSite};
+use warp::{Filter, Rejection};
+use warp::filters::BoxedFilter;
+use crate::ctx;
+use crate::error::AppError;
 use crate::db;
 use crate::db::account::Account;
+use super::FilterResult;
 
-pub const COOKIE_NAME: &'static str = "session";
+pub const SESSION_COOKIE_NAME: &'static str = "session";
 
 pub struct Session {
-    pub key: Vec<u8>,
+    pub key: String,
     pub account: Account,
+}
+
+impl Session {
+    pub fn with<T>(self, reply: T) -> WithSession
+    where
+        T: warp::Reply + 'static
+    {
+        WithSession {
+            session: Some(self),
+            reply: Box::new(reply),
+        }
+    }
+}
+
+pub struct WithSession {
+    pub session: Option<Session>,
+    pub reply: Box<dyn warp::Reply>,
 }
 
 impl AsRef<Account> for Session {
@@ -16,63 +38,65 @@ impl AsRef<Account> for Session {
     }
 }
 
-pub struct WithSession {
-    pub update: bool,
-    pub session: Option<Session>,
-    pub reply: Box<dyn warp::Reply>,
-}
-
 impl WithSession {
-    pub fn new() -> Self {
-        Self {
-            update: false,
-            session: None,
-            reply: Box::new(warp::reply::with_status("", http::StatusCode::NO_CONTENT)),
-        }
-    }
-
-    pub fn init(self, session: Option<Session>) -> Self {
-        self.session = session;
-        self
-    }
-
-    pub fn touch(self) -> Self {
-        self.update = true;
-        self
-    }
-
-    pub fn update(self, session: Option<Session>) -> Self {
-        self.session = session;
-        self.touch()
-    }
-
-    pub fn with<T, I>(self, reply: I) -> Self
+    pub fn none<T>(reply: T) -> Self
     where
-        T: warp::Reply + 'static,
-        I: Into<Box<T>>,
+        T: warp::Reply + 'static
     {
-        self.reply = reply.into();
-        self
-    }
-}
-
-impl warp::Reply for WithSession {
-    fn into_response(self) -> warp::reply::Response {
-        if self.update {
-            let cookie = if let Some(session) = self.session {
-                update_session_cookie(&session.key)
-            } else {
-                remove_session_cookie()
-            };
-            warp::reply::with_header(self.reply, http::header::SET_COOKIE, cookie.to_string()).into_response()
-        } else {
-            self.reply.into_response()
+        Self {
+            session: None,
+            reply: Box::new(reply),
         }
     }
+
+    pub fn reply(self) -> impl warp::Reply {
+        let cookie = if let Some(session) = self.session {
+            update_cookie(session.key)
+        } else {
+            remove_cookie()
+        };
+        warp::reply::with_header(self.reply, http::header::SET_COOKIE, cookie.to_string())
+    }
 }
 
-fn update_session_cookie(session_key: &[u8]) -> Cookie<'static> {
-    Cookie::build(COOKIE_NAME, db::session::encode_key(session_key))
+pub fn fetch_session() -> BoxedFilter<(Option<Session>,)> {
+    warp::cookie::optional(SESSION_COOKIE_NAME)
+        .and_then(async move |maybe_key: Option<String>| -> FilterResult<Option<Session>> {
+            if let Some(key) = maybe_key {
+                db::session::touch(ctx().site_db.clone(), &key)
+                    .await
+                    .map(|opt| opt.map(|account| Session { key, account }))
+                    .map_err(warp::Rejection::from)
+            } else {
+                Ok(None)
+            }
+        })
+        .boxed()
+}
+
+pub fn fetch_session_required() -> BoxedFilter<(Session,)> {
+    fetch_session()
+        .and_then(async move |s: Option<Session>| -> FilterResult<Session> {
+            s.ok_or(AppError::Unauthed.into())
+        })
+        .boxed()
+}
+
+pub fn unauthed_required() -> BoxedFilter<()> {
+    fetch_session()
+        .and_then(async move |s: Option<Session>| -> FilterResult<()> {
+            if s.is_none() {
+                Ok(())
+            } else {
+                Err(AppError::Forbidden.into())
+            }
+        })
+        .untuple_one()
+        .boxed()
+}
+
+fn update_cookie(session_key: String) -> Cookie<'static> {
+    Cookie::build(SESSION_COOKIE_NAME, session_key)
         .path("/")
         .http_only(true)
         .secure(!cfg!(debug_assertions))
@@ -81,8 +105,8 @@ fn update_session_cookie(session_key: &[u8]) -> Cookie<'static> {
         .finish()
 }
     
-fn remove_session_cookie() -> Cookie<'static> {
-    Cookie::build(COOKIE_NAME, "")
+pub fn remove_cookie() -> Cookie<'static> {
+    Cookie::build(SESSION_COOKIE_NAME, "")
         .path("/")
         .http_only(true)
         .secure(!cfg!(debug_assertions))

@@ -10,14 +10,13 @@ pub enum Condition {
     Not(Box<Condition>),
 }
 
-impl Condition {
-    pub fn check(&self, tags: &HashSet<String>) -> bool {
-        match self {
-            Self::Has(tag) => tags.contains(tag),
-            Self::And(inner) => inner.iter().all(|c| c.check(tags)),
-            Self::Or(inner) => inner.iter().any(|c| c.check(tags)),
-            Self::Not(inner) => !inner.check(tags),
-        }
+pub fn check(cond: Option<&Condition>, tags: &HashSet<String>) -> bool {
+    match cond {
+        None => true,
+        Some(Condition::Has(tag)) => tags.contains(tag),
+        Some(Condition::And(inner)) => inner.iter().all(|c| check(Some(c), tags)),
+        Some(Condition::Or(inner)) => inner.iter().any(|c| check(Some(c), tags)),
+        Some(Condition::Not(inner)) => !check(Some(inner), tags),
     }
 }
 

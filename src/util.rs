@@ -42,20 +42,6 @@ pub fn fill_random_bytes(out: &mut [u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn make_password_hash(password: &[u8]) -> anyhow::Result<String> {
-    let mut salt = [0u8; 32];
-    fill_random_bytes(&mut salt)?;
-    let argon_config = argon2::Config::default();
-    let hash = argon2::hash_encoded(password, &salt, &argon_config)?;
-    Ok(hash)
-}
-
-pub fn generate_session_key() -> anyhow::Result<String> {
-    let mut key = [0u8; 32];
-    fill_random_bytes(&mut key)?;
-    Ok(hexstring(&key))
-}
-
 pub fn prepare_name(input: &str) -> String {
     capitalize(WHITESPACE_REGEX.replace(&input.trim().to_lowercase(), " "))
 }
