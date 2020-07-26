@@ -1,52 +1,41 @@
-use std::num::NonZeroU32;
-use std::hash::Hash;
-use std::collections::{HashSet, HashMap};
-use serde::Deserialize;
-use super::tags::Condition;
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    num::NonZeroU32,
+};
+use serde::{Deserialize, Serialize};
+use super::tags::{Condition, Tags};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Info {
+pub struct Metadata {
     pub name: String,
+    #[serde(default)] pub name_female: Option<String>,
     #[serde(default)] pub info: Option<String>,
     #[serde(default)] pub preview: Option<String>,
     #[serde(default)] pub requires: Option<Condition>,
-    #[serde(default)] pub provides: HashSet<String>,
+    #[serde(default)] pub provides: Tags,
+    #[serde(default)] pub order: i32,
 }
 
-impl Info {
-    pub fn make_requires_string(&self) -> String {
-        self.requires.as_ref().map(|c| c.to_string()).unwrap_or_else(String::new)
-    }
-
-    pub fn make_provides_string(&self) -> String {
-        self.provides.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ")
-    }
-}
-
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Mods {
-    #[serde(default)] pub spells_banned: HashSet<u32>,
-    #[serde(default)] pub spells: HashSet<u32>,
-    #[serde(default)] pub skills: HashMap<u32, i16>,
-    #[serde(default)] pub items: HashMap<u32, i16>,
+    #[serde(default)] pub spells_banned: HashSet<NonZeroU32>,
+    #[serde(default)] pub spells: HashSet<NonZeroU32>,
+    #[serde(default)] pub skills: HashMap<NonZeroU32, i32>,
+    #[serde(default)] pub items: HashMap<NonZeroU32, i32>,
     #[serde(default)] pub money: i32,
+    #[serde(default)] pub level: i32,
 }
 
 impl Mods {
-    pub fn join<'a, I>(mods: I) -> Self
-    where
-        I: IntoIterator,
-        I::Item: AsRef<Self>
-    {
-        let mut out = Self::default();
-        for x in mods { out.merge_in(x.as_ref()) }
-        out
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn merge_in(&mut self, other: &Self) {
-        fn sum(into: &mut HashMap<u32, i16>, from: &HashMap<u32, i16>) {
+        fn sum(into: &mut HashMap<NonZeroU32, i32>, from: &HashMap<NonZeroU32, i32>) {
             for (item, count) in from {
                 if let Some(existing) = into.get_mut(item) {
                     *existing += count;
@@ -61,27 +50,30 @@ impl Mods {
         sum(&mut self.skills, &other.skills);
         sum(&mut self.items, &other.items);
         self.money += other.money;
+        self.level += other.level;
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Race {
-    #[serde(flatten)] pub info: Info,
-    #[serde(default)] pub name_female: Option<String>,
+    #[serde(flatten)] pub meta: Metadata,
+    pub game_id: u8,
+    #[serde(flatten)] pub mods: Mods,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Class {
-    #[serde(flatten)] pub info: Info,
-    #[serde(default)] pub name_female: Option<String>,
+    #[serde(flatten)] pub meta: Metadata,
+    pub game_id: u8,
+    #[serde(flatten)] pub mods: Mods,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Armor {
-    #[serde(flatten)] pub info: Info,
+    #[serde(flatten)] pub meta: Metadata,
     #[serde(default)] pub head: Option<NonZeroU32>,
     #[serde(default)] pub neck: Option<NonZeroU32>,
     #[serde(default)] pub shoulders: Option<NonZeroU32>,
@@ -97,29 +89,30 @@ pub struct Armor {
     #[serde(default)] pub back: Option<NonZeroU32>,
     #[serde(default)] pub tabard: Option<NonZeroU32>,
     #[serde(default)] pub bags: Vec<NonZeroU32>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Weapon {
-    #[serde(flatten)] pub info: Info,
-    #[serde(default)] pub mainhand: Option<NonZeroU32>,
-    #[serde(default)] pub offhand: Option<NonZeroU32>,
-    #[serde(default)] pub ranged: Option<NonZeroU32>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Trait {
-    #[serde(flatten)] pub info: Info,
-    #[serde(default)] pub cost: i32,
     #[serde(flatten)] pub mods: Mods,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Weapon {
+    #[serde(flatten)] pub meta: Metadata,
+    #[serde(default)] pub mainhand: Option<NonZeroU32>,
+    #[serde(default)] pub offhand: Option<NonZeroU32>,
+    #[serde(default)] pub ranged: Option<NonZeroU32>,
+    #[serde(flatten)] pub mods: Mods,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Trait {
+    #[serde(flatten)] pub meta: Metadata,
+    #[serde(flatten)] pub mods: Mods,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Location {
-    #[serde(flatten)] pub info: Info,
+    #[serde(flatten)] pub meta: Metadata,
     pub map: u32,
     pub zone: u32,
     pub position: (f32, f32, f32),
@@ -127,30 +120,42 @@ pub struct Location {
     #[serde(flatten)] pub mods: Mods,
 }
 
-impl AsRef<Info> for Race {
-    fn as_ref(&self) -> &Info { &self.info }
+impl AsRef<Metadata> for Race {
+    fn as_ref(&self) -> &Metadata {
+        &self.meta
+    }
 }
-impl AsRef<Info> for Class {
-    fn as_ref(&self) -> &Info { &self.info }
+impl AsRef<Metadata> for Class {
+    fn as_ref(&self) -> &Metadata {
+        &self.meta
+    }
 }
-impl AsRef<Info> for Armor {
-    fn as_ref(&self) -> &Info { &self.info }
+impl AsRef<Metadata> for Armor {
+    fn as_ref(&self) -> &Metadata {
+        &self.meta
+    }
 }
-impl AsRef<Info> for Weapon {
-    fn as_ref(&self) -> &Info { &self.info }
+impl AsRef<Metadata> for Weapon {
+    fn as_ref(&self) -> &Metadata {
+        &self.meta
+    }
 }
-impl AsRef<Info> for Trait {
-    fn as_ref(&self) -> &Info { &self.info }
+impl AsRef<Metadata> for Trait {
+    fn as_ref(&self) -> &Metadata {
+        &self.meta
+    }
 }
-impl AsRef<Info> for Location {
-    fn as_ref(&self) -> &Info { &self.info }
+impl AsRef<Metadata> for Location {
+    fn as_ref(&self) -> &Metadata {
+        &self.meta
+    }
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct System {
-    #[serde(default)] pub race: HashMap<u8, Race>,
-    #[serde(default)] pub class: HashMap<u8, Class>,
+    #[serde(default)] pub race: HashMap<String, Race>,
+    #[serde(default)] pub class: HashMap<String, Class>,
     #[serde(default)] pub armor: HashMap<String, Armor>,
     #[serde(default)] pub weapon: HashMap<String, Weapon>,
     #[serde(default, rename = "trait")] pub traits: HashMap<String, Trait>,
@@ -166,7 +171,7 @@ impl System {
         fn walk<K, V>(into: &mut HashMap<K, V>, from: &HashMap<K, V>)
         where
             K: Clone + Hash + Eq,
-            V: Clone
+            V: Clone,
         {
             for (key, value) in from {
                 if !into.contains_key(key) {
@@ -182,45 +187,66 @@ impl System {
         walk(&mut self.location, &other.location);
     }
 
-    pub fn view<'a>(&'a self) -> SystemView<'a> {
+    pub fn view(&self) -> SystemView {
         SystemView::new(self)
     }
 
-    pub fn info_iter(&self) -> impl Iterator<Item = &Info> {
-        self.race.values().map(AsRef::<Info>::as_ref)
-            .chain(self.class.values().map(AsRef::<Info>::as_ref))
-            .chain(self.armor.values().map(AsRef::<Info>::as_ref))
-            .chain(self.weapon.values().map(AsRef::<Info>::as_ref))
-            .chain(self.traits.values().map(AsRef::<Info>::as_ref))
-            .chain(self.location.values().map(AsRef::<Info>::as_ref))
+    pub fn info_iter(&self) -> impl Iterator<Item = &Metadata> {
+        self.race
+            .values()
+            .map(AsRef::<Metadata>::as_ref)
+            .chain(self.class.values().map(AsRef::<Metadata>::as_ref))
+            .chain(self.armor.values().map(AsRef::<Metadata>::as_ref))
+            .chain(self.weapon.values().map(AsRef::<Metadata>::as_ref))
+            .chain(self.traits.values().map(AsRef::<Metadata>::as_ref))
+            .chain(self.location.values().map(AsRef::<Metadata>::as_ref))
     }
 }
 
-pub struct SystemView<'a> {
-    pub race: Vec<(&'a u8, &'a Race)>,
-    pub class: Vec<(&'a u8, &'a Class)>,
-    pub armor: Vec<(&'a String, &'a Armor)>,
-    pub weapon: Vec<(&'a String, &'a Weapon)>,
-    pub traits: Vec<(&'a String, &'a Trait)>,
-    pub location: Vec<(&'a String, &'a Location)>,
+#[derive(Debug, Clone, Serialize)]
+pub struct SystemView {
+    pub race: HashMap<String, Metadata>,
+    pub class: HashMap<String, Metadata>,
+    pub armor: HashMap<String, Metadata>,
+    pub weapon: HashMap<String, Metadata>,
+    #[serde(rename = "trait")]
+    pub traits: HashMap<String, Metadata>,
+    pub location: HashMap<String, Metadata>,
 }
 
-impl<'a> SystemView<'a> {
-    pub fn new(system: &'a System) -> Self {
-        let mut race: Vec<_> = system.race.iter().collect();
-        let mut class: Vec<_> = system.class.iter().collect();
-        let mut armor: Vec<_> = system.armor.iter().collect();
-        let mut weapon: Vec<_> = system.weapon.iter().collect();
-        let mut traits: Vec<_> = system.traits.iter().collect();
-        let mut location: Vec<_> = system.location.iter().collect();
-
-        race.sort_by_key(|(id, _)| id.clone());
-        class.sort_by_key(|(id, _)| id.clone());
-        armor.sort_by_key(|(_, e)| &e.info.name);
-        weapon.sort_by_key(|(_, e)| &e.info.name);
-        traits.sort_by_key(|(_, e)| (-e.cost, &e.info.name));
-        location.sort_by_key(|(_, e)| &e.info.name);
-
-        Self { race, class, armor, weapon, traits, location }
+impl SystemView {
+    pub fn new(system: &System) -> Self {
+        Self {
+            race: system
+                .race
+                .iter()
+                .map(|(id, data)| (id.clone(), data.meta.clone()))
+                .collect(),
+            class: system
+                .class
+                .iter()
+                .map(|(id, data)| (id.clone(), data.meta.clone()))
+                .collect(),
+            armor: system
+                .armor
+                .iter()
+                .map(|(id, data)| (id.clone(), data.meta.clone()))
+                .collect(),
+            weapon: system
+                .weapon
+                .iter()
+                .map(|(id, data)| (id.clone(), data.meta.clone()))
+                .collect(),
+            traits: system
+                .traits
+                .iter()
+                .map(|(id, data)| (id.clone(), data.meta.clone()))
+                .collect(),
+            location: system
+                .location
+                .iter()
+                .map(|(id, data)| (id.clone(), data.meta.clone()))
+                .collect(),
+        }
     }
 }

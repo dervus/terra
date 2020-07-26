@@ -1,20 +1,9 @@
 listen: 127.0.0.1:8000
-secret: helloworld
-https: false
-host: localhost
-data_path: /home/me/code/terra-data
+campaign_path: /home/me/code/terra-data/campaigns/last-bastion
+assets_path: /home/me/work/terra-assets/out
 
-recaptcha:
-  sitekey: 6LfejakZAAAAAAIfBT7d3d_j6fYAv-H3EPVAbeP1
-  secret: 6LfejakZAAAAAO8LNoh8JGhgT0zTXaUIewejkCxO
+auth_db:
+  connect: mysql://trinity:trinity@localhost/authchars
 
-site_db:
-  connect: postgres://localhost/terra
-
-wowauth_db:
-  connect: mysql://trinity:trinity@localhost/auth
-
-campaigns:
-- id: last-bastion
-  wowchars_db:
-    connect: mysql://trinity:trinity@localhost/characters
+chars_db:
+  connect: mysql://trinity:trinity@localhost/authchars

@@ -1,0 +1,16 @@
+[tasks.format]
+disabled = true
+
+[tasks.dist]
+dependencies = ["build"]
+script_runner = "@shell"
+script = [
+'''
+pkg="${CARGO_MAKE_PROJECT_NAME}-${CARGO_MAKE_PROJECT_VERSION}"
+
+mkdir -p "target/dist/${pkg}"
+cp "config.yml.example" "target/release/${CARGO_MAKE_PROJECT_NAME}" "target/dist/${pkg}"
+cd "target/dist"
+tar -cf "${pkg}.tar.gz" -a "${pkg}"
+'''
+]

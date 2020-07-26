@@ -1,66 +1,86 @@
-pub mod tags;
-pub mod system;
 pub mod campaign;
+pub mod system;
+pub mod tags;
 
-use std::num::{NonZeroU8, NonZeroU32};
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
-use log::{info, warn, debug, trace};
+use std::{collections::HashMap, num::NonZeroU32, path::Path};
+use log::{debug, trace, warn};
 use serde::Deserialize;
-use self::system::{System, Mods};
-use self::campaign::{Campaign, Block, Role, RoleKind};
 use crate::util;
+use self::{
+    campaign::{Block, Campaign, Role, RoleKind},
+    system::{Mods, System},
+    tags::Tags,
+};
 
-pub fn load_campaign<P: AsRef<Path>>(base_path: P, id: &str) -> anyhow::Result<Campaign> {
+pub fn load_campaign<P: AsRef<Path>>(
+    campaign_path: P,
+    assets_path: Option<P>,
+) -> anyhow::Result<Campaign> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct ManifestFile {
         name: String,
-        role_default: RoleKind,
-        level: NonZeroU8,
-        #[serde(default)] level_max: Option<NonZeroU8>,
-        trait_limit: u32,
-        trait_balance: i32,
+        role_template: RoleTemplate,
         blocks: Vec<BlockDef>,
     }
     #[derive(Clone, Deserialize)]
     #[serde(deny_unknown_fields)]
+    struct RoleTemplate {
+        kind: RoleKind,
+        #[serde(default)]
+        provides: Tags,
+        #[serde(flatten)]
+        mods: Mods,
+    }
+    #[derive(Clone, Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct BlockDef {
-        #[serde(default)] id: Option<String>,
+        #[serde(default)]
+        id: Option<String>,
         name: String,
-        #[serde(default)] info: Option<String>,
-        #[serde(default)] provides: HashSet<String>,
+        #[serde(default)]
+        info: Option<String>,
+        #[serde(default)]
+        provides: Tags,
+        #[serde(flatten)]
+        mods: Mods,
         roles: Vec<RoleDef>,
     }
     #[derive(Clone, Deserialize)]
     #[serde(deny_unknown_fields)]
     struct RoleDef {
-        #[serde(default)] id: Option<String>,
+        #[serde(default)]
+        id: Option<String>,
         name: String,
-        #[serde(default)] info: Option<String>,
-        #[serde(default)] kind: Option<RoleKind>,
-        #[serde(default)] limit: Option<NonZeroU32>,
-        #[serde(default)] level: Option<NonZeroU8>,
-        #[serde(default)] level_max: Option<NonZeroU8>,
-        #[serde(default)] trait_limit: Option<u32>,
-        #[serde(default)] trait_balance: Option<i32>,
-        #[serde(default)] provides: HashSet<String>,
-        #[serde(flatten)] mods: Mods,
+        #[serde(default)]
+        info: Option<String>,
+        #[serde(default)]
+        kind: Option<RoleKind>,
+        #[serde(default)]
+        limit: Option<NonZeroU32>,
+        #[serde(default)]
+        provides: Tags,
+        #[serde(flatten)]
+        mods: Mods,
     }
 
-    let campaign_path = base_path.as_ref().join("campaigns").join(id);
-    let assets_path = base_path.as_ref().join("assets");
+    let campaign_path = campaign_path.as_ref();
 
     let manifest: ManifestFile = util::load_yaml(&campaign_path.join("manifest.yml"))?;
     let info = util::load_markdown(&campaign_path.join("info.md"))?;
-    let system = load_system(&[campaign_path.join("system.yml"), campaign_path.join("system")])?;
+    let system = load_system(&[
+        campaign_path.join("system.yml"),
+        campaign_path.join("system"),
+    ])?;
 
-    for info in system.info_iter() {
-        if let Some(path) = &info.preview {
-            if assets_path.join(path).exists() {
-                debug!("Found preview file {:?}", path);
-            } else {
-                warn!("Missing preview file {:?}", path);
+    if let Some(base_path) = assets_path {
+        for info in system.info_iter() {
+            if let Some(preview_path) = &info.preview {
+                if base_path.as_ref().join(preview_path).exists() {
+                    debug!("Found preview file {:?}", preview_path);
+                } else {
+                    warn!("Missing preview file {:?}", preview_path);
+                }
             }
         }
     }
@@ -73,25 +93,32 @@ pub fn load_campaign<P: AsRef<Path>>(base_path: P, id: &str) -> anyhow::Result<C
             id: block.id.unwrap_or(util::name_to_id(&block.name)),
             name: block.name,
             info: block.info,
-            roles: Vec::new()
+            roles: Vec::new(),
         };
         for role in block.roles {
-            let id = format!("{}_{}", &compiled_block.id, role.id.unwrap_or(util::name_to_id(&role.name)));
+            let id = format!(
+                "{}_{}",
+                &compiled_block.id,
+                role.id.unwrap_or(util::name_to_id(&role.name))
+            );
             let mut compiled_role = Role {
                 name: role.name,
                 info: role.info,
-                kind: role.kind.unwrap_or(manifest.role_default),
+                kind: role.kind.unwrap_or(manifest.role_template.kind),
                 limit: role.limit,
-                level: role.level.unwrap_or(manifest.level),
-                level_max: role.level_max.or(manifest.level_max),
-                trait_limit: role.trait_limit.unwrap_or(manifest.trait_limit),
-                trait_balance: role.trait_balance.unwrap_or(manifest.trait_balance),
                 provides: role.provides,
-                mods: role.mods
+                mods: role.mods,
             };
-            compiled_role.provides.extend(block.provides.iter().cloned());
-            compiled_role.provides.insert(format!("block:{}", &compiled_block.id));
-            compiled_role.provides.insert(format!("role:{}", &id));
+            compiled_role.mods.merge_in(&manifest.role_template.mods);
+            compiled_role.mods.merge_in(&block.mods);
+            compiled_role
+                .provides
+                .merge_in(&manifest.role_template.provides);
+            compiled_role.provides.merge_in(&block.provides);
+            compiled_role
+                .provides
+                .add(format!("block/{}", &compiled_block.id), 1);
+            compiled_role.provides.add(format!("role/{}", &id), 1);
             compiled_block.roles.push(id.clone());
             resolved_roles.insert(id, compiled_role);
         }
@@ -99,12 +126,12 @@ pub fn load_campaign<P: AsRef<Path>>(base_path: P, id: &str) -> anyhow::Result<C
     }
 
     Ok(Campaign {
-        id: id.to_owned(),
         name: manifest.name,
         info,
+        system_view: system.view(),
         system,
         blocks: resolved_blocks,
-        roles: resolved_roles
+        roles: resolved_roles,
     })
 }
 
@@ -130,7 +157,7 @@ where
         if path.is_dir() {
             load_dir(system, path)?;
         } else if path.extension().map(|ext| ext == "yml").unwrap_or(false) {
-            load_file(system, path)?;   
+            load_file(system, path)?;
         } else {
             debug!("Skipping non-system file {:?}", path);
         }
@@ -138,7 +165,7 @@ where
     }
 
     let mut system = System::new();
-    
+
     for path in paths {
         if path.as_ref().exists() {
             load(&mut system, path.as_ref())?;

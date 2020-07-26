@@ -1,50 +1,34 @@
 [package]
 name = "terra"
-description = "Front page of Skyland-infused World of Warcraft servers"
-version = "0.1.0-3"
+description = "REST API for Skyland-infused World of Warcraft servers"
+version = "2.0.0"
 license = "Proprietary"
 edition = "2018"
 
 [dependencies]
 thiserror = "1"
 anyhow = "1"
+once_cell = "1"
 log = "0.4"
 env_logger = "0.7"
-lazy_static = "1"
+fallible-iterator = "0.2"
 async-ctrlc = "1"
 regex = "1"
-glob = "0.3"
-byteorder = "1"
-base64 = "0.12"
 bitflags = "1"
-futures = { version = "0.3", default-features = false, features = ["alloc"] }
-futures-util = "0.3"
-chrono = "0.4"
-time = "0.2"
-url = "2"
+futures = "0.3"
 comrak = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.8"
-bincode = "1"
 ring = "0.16"
-rust-argon2 = "0.8"
-maud = "0.21"
-tokio = { version = "0.2", features = ["full"] }
-sqlx = { version = "0.3", default-features = false, features = ["runtime-tokio", "macros", "postgres", "mysql", "chrono", "json"] }
-cookie = "0.13"
-hyper = "0.13"
 http = "0.2"
 warp = "0.2"
-reqwest = { version = "0.10", features = ["json"] }
-lettre = "0.9"
-lettre_email = "0.9"
 
-[package.metadata.rpm.cargo]
-buildflags = ["--release"]
+[dependencies.tokio]
+version = "0.2"
+features = ["rt-threaded", "macros", "blocking"]
 
-[package.metadata.rpm.targets]
-terra = { path = "/usr/sbin/terra" }
-
-[package.metadata.rpm.files]
-"terra.service" = { path = "/usr/lib/systemd/system/terra.service" }
+[dependencies.sqlx]
+path = "../sqlx"
+default-features = false
+features = ["runtime-tokio", "macros", "mysql", "json"]

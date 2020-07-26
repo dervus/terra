@@ -1,17 +1,10 @@
-use std::path::Path;
-use std::fs::File;
-use std::io::BufReader;
+use std::{fs::File, io::BufReader, path::Path};
 use log::info;
-use serde::de::DeserializeOwned;
-use lazy_static::lazy_static;
-use anyhow::anyhow;
+use once_cell::sync::Lazy;
 use regex::{Regex, RegexBuilder};
-use ring::rand::{SystemRandom, SecureRandom};
+use serde::de::DeserializeOwned;
 
-lazy_static! {
-    static ref RNG: SystemRandom = SystemRandom::new();
-    static ref WHITESPACE_REGEX: Regex = RegexBuilder::new(r"\s+").build().unwrap();
-}
+static WHITESPACE_REGEX: Lazy<Regex> = Lazy::new(|| RegexBuilder::new(r"\s+").build().unwrap());
 
 pub fn capitalize<T: AsRef<str>>(input: T) -> String {
     let mut output = String::with_capacity(input.as_ref().len());
@@ -35,11 +28,6 @@ pub fn hexstring<T: AsRef<[u8]>>(input: T) -> String {
         write!(&mut output, "{:X}", byte).unwrap();
     }
     output
-}
-
-pub fn fill_random_bytes(out: &mut [u8]) -> anyhow::Result<()> {
-    RNG.fill(out).map_err(|_| anyhow!("unable to generate random bytes"))?;
-    Ok(())
 }
 
 pub fn prepare_name(input: &str) -> String {
@@ -76,18 +64,6 @@ where
     Ok(yaml)
 }
 
-pub fn load_yaml_if_exists<T, P>(path: P) -> anyhow::Result<Option<T>>
-where
-    T: DeserializeOwned,
-    P: AsRef<Path>,
-{
-    if path.as_ref().exists() {
-        load_yaml(path).map(Some)
-    } else {
-        Ok(None)
-    }
-}
-
 pub fn load_markdown<P: AsRef<Path>>(path: P) -> anyhow::Result<String> {
     info!("Loading file {:?}", path.as_ref());
     let source = std::fs::read_to_string(path.as_ref())?;
@@ -99,7 +75,7 @@ pub fn load_markdown<P: AsRef<Path>>(path: P) -> anyhow::Result<String> {
         ext_tasklist: true,
         ext_superscript: true,
         ext_footnotes: true,
-        .. Default::default()
+        ..Default::default()
     };
     Ok(comrak::markdown_to_html(&source, &options))
 }

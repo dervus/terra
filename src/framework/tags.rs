@@ -1,101 +1,113 @@
-use std::fmt;
-use std::collections::HashSet;
-use serde::de;
+use std::{collections::HashMap, iter::Iterator};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct Tags(HashMap<String, i32>);
+
+impl Tags {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn has(&self, name: impl AsRef<str>) -> bool {
+        self.0.contains_key(name.as_ref())
+    }
+
+    pub fn value(&self, name: impl AsRef<str>) -> i32 {
+        self.0.get(name.as_ref()).cloned().unwrap_or(0)
+    }
+
+    pub fn add(&mut self, name: impl Into<String>, value: i32) {
+        *self.0.entry(name.into()).or_insert(0) += value;
+    }
+
+    pub fn merge_in(&mut self, other: &Self) {
+        for (name, value) in &other.0 {
+            self.add(name, *value);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Condition {
     Has(String),
+    Lt(Vec<ConditionOperand>),
+    Lte(Vec<ConditionOperand>),
+    Eq(Vec<ConditionOperand>),
+    Ne(Vec<ConditionOperand>),
+    Gte(Vec<ConditionOperand>),
+    Gt(Vec<ConditionOperand>),
     And(Vec<Condition>),
     Or(Vec<Condition>),
     Not(Box<Condition>),
 }
 
-pub fn check(cond: Option<&Condition>, tags: &HashSet<String>) -> bool {
-    match cond {
-        None => true,
-        Some(Condition::Has(tag)) => tags.contains(tag),
-        Some(Condition::And(inner)) => inner.iter().all(|c| check(Some(c), tags)),
-        Some(Condition::Or(inner)) => inner.iter().any(|c| check(Some(c), tags)),
-        Some(Condition::Not(inner)) => !check(Some(inner), tags),
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ConditionOperand {
+    Constant(i32),
+    Tag(String),
 }
 
-impl fmt::Display for Condition {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut seq = |op, iter: &[Condition]| {
-            f.write_str("(")?;
-            f.write_str(op)?;
-            for c in iter {
-                f.write_str(" ")?;
-                c.fmt(f)?;
-            }
-            f.write_str(")")?;
-            Ok(())
-        };
+impl Condition {
+    pub fn check(&self, tags: &Tags) -> bool {
         match self {
-            Self::Has(tag) => f.write_str(tag),
-            Self::And(inner) => seq("and", inner),
-            Self::Or(inner) => seq("or", inner),
-            Self::Not(inner) => {
-                f.write_str("(not ")?;
-                inner.fmt(f)?;
-                f.write_str(")")?;
-                Ok(())
-            }
+            Self::Has(tag) => tags.has(tag),
+            Self::Lt(args) => perform_operation(tags, args, |a, b| a < b),
+            Self::Lte(args) => perform_operation(tags, args, |a, b| a <= b),
+            Self::Eq(args) => perform_operation(tags, args, |a, b| a == b),
+            Self::Ne(args) => perform_operation(tags, args, |a, b| a != b),
+            Self::Gte(args) => perform_operation(tags, args, |a, b| a >= b),
+            Self::Gt(args) => perform_operation(tags, args, |a, b| a > b),
+            Self::And(conds) => conds.iter().all(|c| c.check(tags)),
+            Self::Or(conds) => conds.iter().any(|c| c.check(tags)),
+            Self::Not(inner) => !inner.check(tags),
         }
     }
 }
 
-impl<'de> de::Deserialize<'de> for Condition {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: de::Deserializer<'de>,
-    {
-        deserializer.deserialize_any(ConditionVisitor)
+fn perform_operation(
+    tags: &Tags,
+    args: &[ConditionOperand],
+    op: impl Fn(i32, i32) -> bool,
+) -> bool {
+    let resolved = args.iter().map(|arg| match arg {
+        ConditionOperand::Constant(value) => *value,
+        ConditionOperand::Tag(name) => tags.value(name),
+    });
+
+    let mut maybe_last: Option<i32> = None;
+    for arg in resolved {
+        if let Some(last) = maybe_last {
+            if !op(last, arg) {
+                return false;
+            }
+        }
+        maybe_last = Some(arg);
     }
+    true
 }
 
-struct ConditionVisitor;
+#[cfg(test)]
+mod test {
+    #[test]
+    fn perform_operation() {
+        let mut tags = super::Tags(std::collections::HashMap::new());
+        tags.add("foo", 1);
+        tags.add("bar", 5);
 
-impl<'de> de::Visitor<'de> for ConditionVisitor {
-    type Value = Condition;
-
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("terra tag condition expression")
-    }
-
-    fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-        self.visit_string(v.to_owned())
-    }
-
-    fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
-        Ok(Condition::Has(v))
-    }
-
-    fn visit_seq<A>(self, mut v: A) -> Result<Self::Value, A::Error>
-    where
-        A: de::SeqAccess<'de>
-    {
-        let first: String = v.next_element()?.ok_or(de::Error::custom("every sequence must start with a string element"))?;
-        let mut rest: Vec<Condition> = if let Some(hint) = v.size_hint() {
-            Vec::with_capacity(hint)
-        } else {
-            Vec::new()
-        };
-        while let Some(constraint) = v.next_element()? {
-            rest.push(constraint)
-        }
-        match first.as_ref() {
-            "and" => Ok(Condition::And(rest)),
-            "or" => Ok(Condition::Or(rest)),
-            "not" => {
-                if rest.len() == 1 {
-                    Ok(Condition::Not(Box::new(rest.into_iter().nth(0).unwrap())))
-                } else {
-                    Err(de::Error::custom("not condition must contain exactly one inner condition"))
-                }
-            }
-            _ => Err(de::Error::custom(format!("invalid condition operator {:?}", first)))
-        }
+        use super::ConditionOperand::Constant as Val;
+        use super::ConditionOperand::Tag;
+        assert!(super::perform_operation(
+            &tags,
+            &[Tag("foo".into()), Val(3), Tag("bar".into())],
+            |a, b| a < b
+        ));
+        assert!(!super::perform_operation(
+            &tags,
+            &[Tag("foo".into()), Val(5), Tag("bar".into())],
+            |a, b| a < b
+        ));
     }
 }

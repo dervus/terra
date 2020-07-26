@@ -1,0 +1,9 @@
+listen: 0.0.0.0:8000
+campaign_path: /usr/local/share/terra-data/campaign
+assets_path: /usr/local/share/terra-data/assets
+
+auth_db:
+  connect: mysql://trinity:trinity@localhost/auth
+
+chars_db:
+  connect: mysql://trinity:trinity@localhost/characters
