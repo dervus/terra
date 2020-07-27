@@ -97,7 +97,7 @@ pub fn create_server(ctx: CtxRef) -> BoxedFilter<(impl Reply,)> {
 }
 
 async fn account_read_handler(account: u32, ctx: CtxRef) -> JsonResult {
-    let data = db::account::read(ctx.chars_db.clone(), account).await?;
+    let data = db::account::read(ctx.auth_db.clone(), account).await?;
     Ok(warp::reply::json(&data))
 }
 
@@ -109,7 +109,7 @@ struct AccountCreate {
 }
 
 async fn account_create_handler(input: AccountCreate, ctx: CtxRef) -> JsonResult {
-    let id = db::account::create(ctx.chars_db.clone(), &input.username, &input.password).await?;
+    let id = db::account::create(ctx.auth_db.clone(), &input.username, &input.password).await?;
     Ok(warp::reply::json(&json!({ "id": id })))
 }
 
@@ -119,7 +119,7 @@ async fn account_replace_handler(
     ctx: CtxRef,
 ) -> FilterResult<impl Reply> {
     db::account::replace(
-        ctx.chars_db.clone(),
+        ctx.auth_db.clone(),
         account,
         &input.username,
         &input.password,
@@ -134,7 +134,7 @@ async fn account_update_handler(
     ctx: CtxRef,
 ) -> FilterResult<impl Reply> {
     db::account::update(
-        ctx.chars_db.clone(),
+        ctx.auth_db.clone(),
         account,
         &input.username,
         &input.password,
