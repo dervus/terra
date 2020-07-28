@@ -69,3 +69,13 @@ fn make_password_hash(username: &str, password: &str) -> String {
     let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, input.as_bytes());
     util::hexstring(digest)
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    #[test]
+    fn password_hashing() {
+        assert_eq!(make_password_hash("Grantovich", "statue TURTLE"), "6834AEE863135609C53AEC2DF41D65D1E6E24811");
+        assert_eq!(make_password_hash("Stif", "snakinglying34"), "9008FF7AB85467ECF9F067C76D4FACD619077793");
+    }
+}

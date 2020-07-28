@@ -25,7 +25,7 @@ pub fn hexstring<T: AsRef<[u8]>>(input: T) -> String {
     let input = input.as_ref();
     let mut output = String::with_capacity(input.len() * 2);
     for byte in input.iter() {
-        write!(&mut output, "{:X}", byte).unwrap();
+        write!(&mut output, "{:02X}", byte).unwrap();
     }
     output
 }

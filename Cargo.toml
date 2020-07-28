@@ -1,7 +1,7 @@
 [package]
 name = "terra"
 description = "REST API for Skyland-infused World of Warcraft servers"
-version = "2.0.1"
+version = "2.0.2"
 license = "Proprietary"
 edition = "2018"
 
